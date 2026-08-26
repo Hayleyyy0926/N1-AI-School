@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Production output
+dist/
+
+# Local environment variables
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+pnpm-debug.log*
+
+# Vercel
+.vercel/
