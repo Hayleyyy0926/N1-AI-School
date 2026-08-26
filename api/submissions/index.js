@@ -1,22 +1,22 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { db, ensureSchema } from '../_db.js'
+import { db } from '../_db.js'
 
 const hash = value => createHash('sha256').update(value).digest('hex')
-const json = (body, status = 200) => ({ status, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 
-export default async function handler(req) {
+export default async function handler(req, res) {
   try {
     const sql = db()
-    await ensureSchema(sql)
     if (req.method === 'POST') {
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
       const token = randomBytes(32).toString('hex')
-      const rows = await sql`INSERT INTO submissions (id, language, edit_token_hash, answers) VALUES (${randomUUID()}, ${body.language || 'zh'}, ${hash(token)}, ${JSON.stringify(body.answers || {})}::jsonb) RETURNING id, status, created_at`
-      return json({ ...rows[0], editToken: token }, 201)
+      const answers = body.answers || {}
+      const status = body.status === 'submitted' ? 'submitted' : 'draft'
+      const rows = await sql`INSERT INTO submissions (id, language, edit_token_hash, applicant_name, contact_email, answers, status, submitted_at) VALUES (${randomUUID()}, ${body.language || 'zh'}, ${hash(token)}, ${answers.name || null}, ${answers.email || null}, ${JSON.stringify(answers)}::jsonb, ${status}, ${status === 'submitted' ? new Date() : null}) RETURNING id, status, created_at, submitted_at`
+      return res.status(201).json({ ...rows[0], editToken: token })
     }
-    return json({ error: 'Method not allowed' }, 405)
+    return res.status(405).json({ error: 'Method not allowed' })
   } catch (error) {
     console.error(error)
-    return json({ error: 'Unable to save submission' }, 500)
+    return res.status(500).json({ error: 'Unable to save submission' })
   }
 }
