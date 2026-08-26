@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import CoverPage from './CoverPage.jsx'
 import './styles.css'
 
 const sections = [
@@ -15,6 +16,49 @@ const statusOptionsZh = ['高中', '大学', 'Gap Year', '休学或退学', '工
 const statusOptionsEn = ['High school', 'University', 'Gap year', 'Leave of absence or dropout', 'Working', 'Research', 'Startup', 'Other']
 const participationOptionsZh = ['Gap Year 或休学期间全职参与', '毕业后长期入驻', '江浙沪地区每周稳定参与', '寒暑假集中参与', '围绕具体项目合作', '作为长期社区成员持续回来']
 const participationOptionsEn = ['Full-time during a gap year or leave', 'Long-term residency after graduation', 'Regular weekly participation from Shanghai–Jiangsu–Zhejiang', 'Intensive participation during school breaks', 'Project-based collaboration', 'Long-term community membership']
+const localDraftKey = 'n1-application-draft-v1'
+const submissionKey = 'n1-submission'
+const emptyForm = {
+  name: '', birthday: '', nationality: '', city: '', email: '', phone: '', contact: '',
+  status: '', school: '', participation: [], start: '', days: '', duration: '', housing: '',
+  project1: '', project2: '', contribution: '', impact: '', learning: '', pursuit: '', process: '', processFile: '',
+  commitment: '', video: '', videoFile: '', refName: '', refContact: '', refWork: '', refAllowed: '', final: '',
+  ai: [], aiNote: '', confirmed: false, confirmName: '', confirmDate: ''
+}
+
+const readStoredJson = key => {
+  try { return JSON.parse(window.localStorage.getItem(key) || 'null') } catch { return null }
+}
+
+const loadLocalDraft = () => {
+  const draft = readStoredJson(localDraftKey)
+  if (!draft || draft.version !== 1 || typeof draft.form !== 'object') return null
+  const form = {
+    ...emptyForm,
+    ...draft.form,
+    participation: Array.isArray(draft.form.participation) ? draft.form.participation : [],
+    ai: Array.isArray(draft.form.ai) ? draft.form.ai : [],
+    confirmed: Boolean(draft.form.confirmed),
+    // Browsers deliberately do not restore native file inputs after a reload.
+    processFile: '',
+    videoFile: ''
+  }
+  return {
+    form,
+    language: draft.language === 'en' ? 'en' : 'zh',
+    activeSection: sections.some(section => section.id === draft.activeSection) ? draft.activeSection : 'basics',
+    projectCount: draft.projectCount === 2 || form.project2 ? 2 : 1
+  }
+}
+
+const storeJson = (key, value) => {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value))
+    return true
+  } catch {
+    return false
+  }
+}
 
 function Field({ label, hint, children, required = false, className = '' }) {
   return <label className={`field ${className}`}>
@@ -42,21 +86,17 @@ function CheckList({ options, values, onToggle }) {
 }
 
 function App() {
-  const [lang, setLang] = useState('zh')
-  const [active, setActive] = useState('basics')
+  const [initialDraft] = useState(loadLocalDraft)
+  const [initialSubmission] = useState(() => readStoredJson(submissionKey))
+  const [lang, setLang] = useState(initialDraft?.language || 'zh')
+  const [active, setActive] = useState(initialDraft?.activeSection || 'basics')
   const [saved, setSaved] = useState(false)
-  const [form, setForm] = useState({
-    name: '', birthday: '', nationality: '', city: '', email: '', phone: '', contact: '',
-    status: '', school: '', participation: [], start: '', days: '', duration: '', housing: '',
-    project1: '', project2: '', contribution: '', impact: '', learning: '', pursuit: '', process: '', processFile: '',
-    commitment: '', video: '', videoFile: '', refName: '', refContact: '', refWork: '', refAllowed: '', final: '',
-    ai: [], aiNote: '', confirmed: false, confirmName: '', confirmDate: ''
-  })
-  const [projectCount, setProjectCount] = useState(1)
-  const [submitted, setSubmitted] = useState(false)
-  const [submission, setSubmission] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('n1-submission') || 'null') } catch { return null }
-  })
+  const [form, setForm] = useState(initialDraft?.form || { ...emptyForm })
+  const [projectCount, setProjectCount] = useState(initialDraft?.projectCount || 1)
+  const [submitted, setSubmitted] = useState(initialSubmission?.status === 'submitted')
+  const [submission, setSubmission] = useState(initialSubmission)
+  const [storageError, setStorageError] = useState(false)
+  const [page, setPage] = useState(() => window.location.hash === '#apply' ? 'application' : 'cover')
   const isZh = lang === 'zh'
   const copy = useMemo(() => ({
     eyebrow: isZh ? 'N1 AI SCHOOL / APPLICATION 2026' : 'N1 AI SCHOOL / APPLICATION 2026',
@@ -65,11 +105,33 @@ function App() {
     subintro: isZh ? '具体、真实、有证据，比完整和漂亮更重要。' : 'Specific, honest, and verifiable answers matter most.',
     save: isZh ? '保存草稿' : 'Save draft',
     saved: isZh ? '已保存' : 'Saved',
+    submitted: isZh ? '已提交' : 'Submitted',
     next: isZh ? '下一部分' : 'Next section',
     submit: isZh ? '提交申请' : 'Submit application',
     back: isZh ? '上一部分' : 'Previous section',
     required: isZh ? '带 * 为必填项' : 'Fields marked * are required',
   }), [isZh])
+
+  useEffect(() => {
+    const stored = storeJson(localDraftKey, {
+      version: 1,
+      language: lang,
+      activeSection: active,
+      projectCount,
+      form: { ...form, processFile: '', videoFile: '' },
+      savedAt: new Date().toISOString()
+    })
+    setStorageError(!stored)
+  }, [active, form, lang, projectCount])
+
+  useEffect(() => {
+    const syncPage = () => {
+      setPage(window.location.hash === '#apply' ? 'application' : 'cover')
+      window.scrollTo({ top: 0, behavior: 'auto' })
+    }
+    window.addEventListener('hashchange', syncPage)
+    return () => window.removeEventListener('hashchange', syncPage)
+  }, [])
 
   const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
   const toggle = (key, value) => set(key, form[key].includes(value) ? form[key].filter(v => v !== value) : [...form[key], value])
@@ -77,18 +139,31 @@ function App() {
   const progress = Math.round(((index + 1) / sections.length) * 100)
   const current = sections[index]
 
+  const openApplication = () => {
+    if (window.location.hash !== '#apply') window.location.hash = 'apply'
+    else setPage('application')
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
+  const openCover = () => {
+    window.location.hash = ''
+    setPage('cover')
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
   const persist = async (status = 'draft') => {
+    if (submission?.status === 'submitted' && status !== 'submitted') throw new Error('Submitted applications cannot be edited')
     const payload = { language: lang, answers: form, status }
     const response = submission
       ? await fetch(`/api/submissions/${submission.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-edit-token': submission.editToken }, body: JSON.stringify(payload) })
       : await fetch('/api/submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
     if (!response.ok) throw new Error('Unable to save application')
     const result = await response.json()
-    if (!submission) {
-      const nextSubmission = { id: result.id, editToken: result.editToken }
-      setSubmission(nextSubmission)
-      localStorage.setItem('n1-submission', JSON.stringify(nextSubmission))
-    }
+    const nextSubmission = submission
+      ? { ...submission, status: result.status }
+      : { id: result.id, editToken: result.editToken, status: result.status }
+    setSubmission(nextSubmission)
+    if (!storeJson(submissionKey, nextSubmission)) setStorageError(true)
     return result
   }
 
@@ -105,12 +180,14 @@ function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  if (page === 'cover') return <CoverPage lang={lang} setLang={setLang} onApply={openApplication} />
+
   return <div className="app-shell">
     <header className="topbar">
-      <div className="brand"><span className="brand-mark">N1</span><span className="brand-divider" /><span className="brand-type">AI SCHOOL</span></div>
+      <button className="brand brand-button" onClick={openCover} aria-label={isZh ? '返回首页' : 'Back to cover'}><span className="brand-mark">N1</span><span className="brand-divider" /><span className="brand-type">AI SCHOOL</span></button>
       <div className="top-actions">
-        <button className="save-btn" onClick={async () => { try { await persist('draft'); setSaved(true); setTimeout(() => setSaved(false), 1800) } catch (error) { console.error(error); alert(isZh ? '草稿保存失败，请稍后再试。' : 'Draft save failed. Please try again.') } }} aria-label={copy.save}>
-          <span className="save-dot" />{saved ? copy.saved : copy.save}
+        <button className="save-btn" disabled={submission?.status === 'submitted'} onClick={async () => { try { await persist('draft'); setSaved(true); setTimeout(() => setSaved(false), 1800) } catch (error) { console.error(error); alert(isZh ? '草稿保存失败，请稍后再试。' : 'Draft save failed. Please try again.') } }} aria-label={copy.save}>
+          <span className="save-dot" />{submission?.status === 'submitted' ? copy.submitted : saved ? copy.saved : copy.save}
         </button>
         <div className="language-toggle" role="group" aria-label="Language">
           <button className={isZh ? 'active' : ''} onClick={() => setLang('zh')}>中</button>
@@ -121,6 +198,7 @@ function App() {
     </header>
 
     <div className="progress-line"><span style={{ width: `${progress}%` }} /></div>
+    {storageError && <div className="storage-warning" role="alert">{isZh ? '此浏览器无法自动保存本地草稿，请检查隐私或存储设置。' : 'This browser cannot auto-save a local draft. Check its privacy or storage settings.'}</div>}
 
     <div className="layout">
       <aside className="side-nav">

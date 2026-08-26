@@ -13,8 +13,13 @@ export default async function handler(req, res) {
       const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {})
       const status = body.status === 'submitted' ? 'submitted' : 'draft'
       const answers = body.answers || {}
-      const rows = await sql`UPDATE submissions SET answers = ${JSON.stringify(answers)}::jsonb, applicant_name = ${answers.name || null}, contact_email = ${answers.email || null}, status = ${status}, updated_at = now(), submitted_at = CASE WHEN ${status} = 'submitted' THEN now() ELSE submitted_at END WHERE id = ${id} AND edit_token_hash = ${hash(token)} RETURNING id, status, updated_at, submitted_at`
-      if (!rows.length) return res.status(404).json({ error: 'Submission not found' })
+      const tokenHash = hash(token)
+      const rows = await sql`UPDATE submissions SET answers = ${JSON.stringify(answers)}::jsonb, applicant_name = ${answers.name || null}, contact_email = ${answers.email || null}, status = ${status}, updated_at = now(), submitted_at = CASE WHEN ${status} = 'submitted' THEN now() ELSE submitted_at END WHERE id = ${id} AND edit_token_hash = ${tokenHash} AND status <> 'submitted' RETURNING id, status, updated_at, submitted_at`
+      if (!rows.length) {
+        const existing = await sql`SELECT status FROM submissions WHERE id = ${id} AND edit_token_hash = ${tokenHash}`
+        if (existing[0]?.status === 'submitted') return res.status(409).json({ error: 'Submitted applications cannot be edited' })
+        return res.status(404).json({ error: 'Submission not found' })
+      }
       return res.status(200).json(rows[0])
     }
     return res.status(405).json({ error: 'Method not allowed' })
