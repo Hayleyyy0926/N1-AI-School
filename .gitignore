@@ -23,3 +23,5 @@ pnpm-debug.log*
 
 # Repository-specific SSH credentials
 .local-ssh/
+.pnpm-store/
+work/

@@ -54,6 +54,9 @@ function App() {
   })
   const [projectCount, setProjectCount] = useState(1)
   const [submitted, setSubmitted] = useState(false)
+  const [submission, setSubmission] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('n1-submission') || 'null') } catch { return null }
+  })
   const isZh = lang === 'zh'
   const copy = useMemo(() => ({
     eyebrow: isZh ? 'N1 AI SCHOOL / APPLICATION 2026' : 'N1 AI SCHOOL / APPLICATION 2026',
@@ -74,9 +77,27 @@ function App() {
   const progress = Math.round(((index + 1) / sections.length) * 100)
   const current = sections[index]
 
-  const goNext = () => {
+  const persist = async (status = 'draft') => {
+    const payload = { language: lang, answers: form, status }
+    const response = submission
+      ? await fetch(`/api/submissions/${submission.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-edit-token': submission.editToken }, body: JSON.stringify(payload) })
+      : await fetch('/api/submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+    if (!response.ok) throw new Error('Unable to save application')
+    const result = await response.json()
+    if (!submission) {
+      const nextSubmission = { id: result.id, editToken: result.editToken }
+      setSubmission(nextSubmission)
+      localStorage.setItem('n1-submission', JSON.stringify(nextSubmission))
+    }
+    return result
+  }
+
+  const goNext = async () => {
+    if (index === sections.length - 1) {
+      try { await persist('submitted'); setSubmitted(true) } catch (error) { console.error(error); alert(isZh ? '提交失败，请稍后再试。' : 'Submission failed. Please try again.') }
+      return
+    }
     if (index < sections.length - 1) setActive(sections[index + 1].id)
-    else setSubmitted(true)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const goBack = () => {
@@ -88,7 +109,7 @@ function App() {
     <header className="topbar">
       <div className="brand"><span className="brand-mark">N1</span><span className="brand-divider" /><span className="brand-type">AI SCHOOL</span></div>
       <div className="top-actions">
-        <button className="save-btn" onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 1800) }} aria-label={copy.save}>
+        <button className="save-btn" onClick={async () => { try { await persist('draft'); setSaved(true); setTimeout(() => setSaved(false), 1800) } catch (error) { console.error(error); alert(isZh ? '草稿保存失败，请稍后再试。' : 'Draft save failed. Please try again.') } }} aria-label={copy.save}>
           <span className="save-dot" />{saved ? copy.saved : copy.save}
         </button>
         <div className="language-toggle" role="group" aria-label="Language">
