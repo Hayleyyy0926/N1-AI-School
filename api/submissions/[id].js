@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { db } from '../_db.js'
+import { syncSubmissionToFeishu } from '../_feishu.js'
 
 const hash = value => createHash('sha256').update(value).digest('hex')
 
@@ -14,13 +15,27 @@ export default async function handler(req, res) {
       const status = body.status === 'submitted' ? 'submitted' : 'draft'
       const answers = body.answers || {}
       const tokenHash = hash(token)
-      const rows = await sql`UPDATE submissions SET answers = ${JSON.stringify(answers)}::jsonb, applicant_name = ${answers.name || null}, contact_email = ${answers.email || null}, status = ${status}, updated_at = now(), submitted_at = CASE WHEN ${status} = 'submitted' THEN now() ELSE submitted_at END WHERE id = ${id} AND edit_token_hash = ${tokenHash} AND status <> 'submitted' RETURNING id, status, updated_at, submitted_at`
+      const rows = await sql`UPDATE submissions SET answers = ${JSON.stringify(answers)}::jsonb, applicant_name = ${answers.name || null}, contact_email = ${answers.email || null}, status = ${status}, updated_at = now(), submitted_at = CASE WHEN ${status} = 'submitted' THEN now() ELSE submitted_at END WHERE id = ${id} AND edit_token_hash = ${tokenHash} AND status <> 'submitted' RETURNING id, status, language, answers, created_at, updated_at, submitted_at, feishu_record_id`
       if (!rows.length) {
         const existing = await sql`SELECT status FROM submissions WHERE id = ${id} AND edit_token_hash = ${tokenHash}`
         if (existing[0]?.status === 'submitted') return res.status(409).json({ error: 'Submitted applications cannot be edited' })
         return res.status(404).json({ error: 'Submission not found' })
       }
-      return res.status(200).json(rows[0])
+      let feishuSync = 'not_needed'
+      if (status === 'submitted') {
+        try {
+          const sync = await syncSubmissionToFeishu(rows[0])
+          if (!sync.recordId) throw new Error('Feishu API did not return a record id')
+          await sql`UPDATE submissions SET feishu_record_id = ${sync.recordId}, feishu_synced_at = now(), feishu_sync_error = NULL WHERE id = ${rows[0].id}`
+          feishuSync = 'synced'
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unknown Feishu sync error'
+          await sql`UPDATE submissions SET feishu_sync_error = ${message.slice(0, 500)} WHERE id = ${rows[0].id}`
+          console.error('Feishu sync failed for submitted application', rows[0].id, message)
+          feishuSync = 'pending'
+        }
+      }
+      return res.status(200).json({ id: rows[0].id, status: rows[0].status, updated_at: rows[0].updated_at, submitted_at: rows[0].submitted_at, feishuSync })
     }
     return res.status(405).json({ error: 'Method not allowed' })
   } catch (error) {

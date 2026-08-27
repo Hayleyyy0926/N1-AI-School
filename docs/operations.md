@@ -21,6 +21,7 @@ A healthy final submission has:
 - A non-null `submitted_at`
 - `applicant_name` and `contact_email` matching the JSONB answers
 - No raw edit token in the row
+- `feishu_synced_at` is non-null after the Feishu upsert succeeds
 
 Do not inspect production answers casually. Use a dedicated test application and remove it according to the data-retention procedure.
 
@@ -57,6 +58,14 @@ Track at minimum:
 - Admin exports and status changes
 
 Operational metrics should use submission IDs and status values, not names, emails, answers, or tokens.
+
+### Retrying Feishu synchronization
+
+The synchronization script only selects submitted rows and is safe to run repeatedly. It updates an existing Bitable row when `Submission ID` matches, so retries do not create duplicates:
+
+```bash
+pnpm feishu:sync
+```
 
 ## Incident response
 

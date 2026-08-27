@@ -19,6 +19,10 @@ Required:
 
 ```text
 DATABASE_URL
+FEISHU_APP_ID
+FEISHU_APP_SECRET
+FEISHU_APP_TOKEN
+FEISHU_TABLE_ID
 ```
 
 Recommended for migration and maintenance tooling:
@@ -28,6 +32,8 @@ DATABASE_URL_UNPOOLED
 ```
 
 Add variables in Vercel Project Settings, not in `vercel.json` or source files. Configure Production, Preview, and Development scopes deliberately.
+
+The Feishu credentials are server-only and must be stored as sensitive Vercel environment variables. `FEISHU_TABLE_ID` may be entered with or without the `tbl` prefix; the runtime normalizes it for the Open API.
 
 Best practice is to use separate Neon branches or databases for Preview and Production. Preview deployments must not write test applications into the production database.
 
@@ -42,6 +48,20 @@ Best practice is to use separate Neon branches or databases for Preview and Prod
 7. Submit one test application.
 8. Confirm the row and `submitted_at` value in Neon.
 9. Check Vercel Function logs for errors without logging answer content.
+
+## Feishu synchronization
+
+Submitted applications are written to Neon first and then upserted into the configured Feishu Bitable by `Submission ID`. Drafts remain in Neon and are not copied to Feishu. If Feishu is temporarily unavailable, the application remains submitted in Neon and is marked for retry:
+
+```bash
+pnpm feishu:sync
+```
+
+Run the idempotent table setup once after creating or replacing the Bitable:
+
+```bash
+pnpm feishu:setup
+```
 
 ## Local testing
 

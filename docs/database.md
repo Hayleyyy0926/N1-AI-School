@@ -24,6 +24,7 @@ Never use a `VITE_` prefix for database variables. Vite exposes such variables t
 - Form context: `form_version`, `language`
 - Workflow: `status`, `created_at`, `updated_at`, `submitted_at`
 - Ownership: `edit_token_hash`
+- Feishu sync: `feishu_record_id`, `feishu_synced_at`, `feishu_sync_error`
 - Flexible form data: `answers JSONB`
 
 `schema_migrations` records the migration filename, checksum, and application time.

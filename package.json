@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 3000",
-    "migrate": "node --env-file=.env scripts/migrate.mjs"
+    "migrate": "node --env-file=.env scripts/migrate.mjs",
+    "feishu:setup": "node --env-file=.env scripts/ensure-feishu-table.mjs",
+    "feishu:sync": "node --env-file=.env scripts/sync-submissions-to-feishu.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
