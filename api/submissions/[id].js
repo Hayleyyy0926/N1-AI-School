@@ -15,10 +15,13 @@ export default async function handler(req, res) {
       const status = body.status === 'submitted' ? 'submitted' : 'draft'
       const answers = body.answers || {}
       const tokenHash = hash(token)
-      const rows = await sql`UPDATE submissions SET answers = ${JSON.stringify(answers)}::jsonb, applicant_name = ${answers.name || null}, contact_email = ${answers.email || null}, status = ${status}, updated_at = now(), submitted_at = CASE WHEN ${status} = 'submitted' THEN now() ELSE submitted_at END WHERE id = ${id} AND edit_token_hash = ${tokenHash} AND status <> 'submitted' RETURNING id, status, language, answers, created_at, updated_at, submitted_at, feishu_record_id`
+      const current = await sql`SELECT status FROM submissions WHERE id = ${id} AND edit_token_hash = ${tokenHash}`
+      if (!current.length) return res.status(404).json({ error: 'Submission not found' })
+      if (current[0].status === 'submitted' && status !== 'submitted') {
+        return res.status(409).json({ error: 'Submitted applications must remain submitted' })
+      }
+      const rows = await sql`UPDATE submissions SET answers = ${JSON.stringify(answers)}::jsonb, applicant_name = ${answers.name || null}, contact_email = ${answers.email || null}, status = ${status}, updated_at = now(), submitted_at = CASE WHEN ${status} = 'submitted' THEN now() ELSE submitted_at END WHERE id = ${id} AND edit_token_hash = ${tokenHash} RETURNING id, status, language, answers, created_at, updated_at, submitted_at, feishu_record_id`
       if (!rows.length) {
-        const existing = await sql`SELECT status FROM submissions WHERE id = ${id} AND edit_token_hash = ${tokenHash}`
-        if (existing[0]?.status === 'submitted') return res.status(409).json({ error: 'Submitted applications cannot be edited' })
         return res.status(404).json({ error: 'Submission not found' })
       }
       let feishuSync = 'not_needed'

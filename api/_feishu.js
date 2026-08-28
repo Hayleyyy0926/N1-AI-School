@@ -26,10 +26,10 @@ export const FEISHU_FIELDS = [
   { key: 'impact', name: '结果与影响 / Result and impact' },
   { key: 'learning', name: '自学挑战 / Self-taught challenge' },
   { key: 'pursuit', name: '正在追的问题 / Problem in pursuit' },
-  { key: 'processFile', name: '过程证据文件 / Process evidence file' },
+  { key: 'processFile', name: '过程证据文件 / Process evidence file', type: 17 },
   { key: 'process', name: '过程证据链接 / Process evidence link' },
   { key: 'commitment', name: '时间与承诺 / Commitment' },
-  { key: 'videoFile', name: '视频文件 / Video file' },
+  { key: 'videoFile', name: '视频文件 / Video file', type: 17 },
   { key: 'video', name: '视频链接 / Video link' },
   { key: 'refName', name: '推荐人姓名 / Reference name' },
   { key: 'refContact', name: '推荐人联系方式 / Reference contact' },
@@ -51,23 +51,51 @@ const answerFor = (answers, key) => {
   return value == null ? '' : String(value)
 }
 
+const chinaTimeFormatter = new Intl.DateTimeFormat('zh-CN', {
+  timeZone: 'Asia/Shanghai',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: 'h23',
+})
+
+export function formatChinaTime(value) {
+  if (!value) return ''
+  const parts = Object.fromEntries(
+    chinaTimeFormatter.formatToParts(new Date(value)).map(({ type, value: part }) => [type, part]),
+  )
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`
+}
+
+function attachmentValue(value) {
+  if (!value) return []
+  const items = Array.isArray(value) ? value : [value]
+  return items
+    .map(item => item?.file_token || item?.fileToken || item?.token)
+    .filter(Boolean)
+    .map(file_token => ({ file_token }))
+}
+
 export function buildFeishuFields(submission) {
   const answers = submission.answers || {}
   const values = {
     submissionId: submission.id,
     status: submission.status,
     language: submission.language,
-    createdAt: submission.created_at,
-    submittedAt: submission.submitted_at,
+    createdAt: formatChinaTime(submission.created_at),
+    submittedAt: formatChinaTime(submission.submitted_at),
     currentStatus: answerFor(answers, 'status'),
     answersJson: JSON.stringify(answers),
   }
 
-  for (const { key } of FEISHU_FIELDS) {
-    if (values[key] === undefined) values[key] = answerFor(answers, key)
+  for (const { key, type } of FEISHU_FIELDS) {
+    if (values[key] === undefined) values[key] = type === 17 ? attachmentValue(answers[key]) : answerFor(answers, key)
   }
 
-  return Object.fromEntries(FEISHU_FIELDS.map(({ key, name }) => [name, values[key] ?? '']))
+  return Object.fromEntries(FEISHU_FIELDS.map(({ key, name, type }) => [name, values[key] ?? (type === 17 ? [] : '')]))
 }
 
 function tableId() {
@@ -86,7 +114,7 @@ function config() {
 async function jsonResponse(response) {
   const body = await response.json().catch(() => ({}))
   if (!response.ok || body.code) {
-    throw new Error(`Feishu API error ${response.status} (${body.code || 'unknown'})`)
+    throw new Error(`Feishu API error ${response.status} (${body.code || 'unknown'}): ${body.msg || 'unknown error'}`)
   }
   return body
 }
@@ -101,6 +129,40 @@ async function tenantAccessToken() {
   const body = await jsonResponse(response)
   if (!body.tenant_access_token) throw new Error('Feishu API did not return a tenant token')
   return body.tenant_access_token
+}
+
+async function resolveBitableAppToken(token, configuredToken) {
+  const wikiResponse = await fetch(`${FEISHU_API}/wiki/v2/spaces/get_node?token=${encodeURIComponent(configuredToken)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(10000),
+  })
+  const wikiBody = await wikiResponse.json().catch(() => ({}))
+  if (wikiResponse.ok && !wikiBody.code && wikiBody.data?.node?.obj_type === 'bitable') {
+    return wikiBody.data.node.obj_token
+  }
+  return configuredToken
+}
+
+export async function uploadFeishuMedia({ file, fileName, contentType }) {
+  const { appToken: configuredToken } = config()
+  const token = await tenantAccessToken()
+  const appToken = await resolveBitableAppToken(token, configuredToken)
+  const form = new FormData()
+  form.append('file_name', fileName)
+  form.append('parent_type', 'bitable_file')
+  form.append('parent_node', appToken)
+  form.append('size', String(file.byteLength))
+  form.append('file', new Blob([file], { type: contentType || 'application/octet-stream' }), fileName)
+  const response = await fetch(`${FEISHU_API}/drive/v1/medias/upload_all`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+    signal: AbortSignal.timeout(30000),
+  })
+  const body = await jsonResponse(response)
+  const fileToken = body.data?.file_token
+  if (!fileToken) throw new Error('Feishu media upload did not return a file token')
+  return fileToken
 }
 
 async function request(token, path, options = {}) {

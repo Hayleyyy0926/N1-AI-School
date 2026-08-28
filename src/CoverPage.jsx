@@ -96,7 +96,10 @@ export default function CoverPage({ lang, setLang, onApply }) {
       <LanguageToggle lang={lang} setLang={setLang} />
     </header>
 
-    <div className="cover-n1" style={markStyle} aria-hidden="true">N1</div>
+    <div className="cover-brand-lockup" style={markStyle} aria-hidden="true">
+      <span className="cover-brand-n1">N1</span>
+      <span className="cover-brand-school">AI SCHOOL</span>
+    </div>
 
     <main>
       <section className="cover-hero">
@@ -121,7 +124,7 @@ export default function CoverPage({ lang, setLang, onApply }) {
       </section>
 
       <section className="cover-quote">
-        <span className="cover-kicker">N1 / PRINCIPLE</span>
+        <span className="cover-kicker">N1 AI SCHOOL / PRINCIPLE</span>
         <blockquote>{copy.quote}</blockquote>
       </section>
 
@@ -147,7 +150,7 @@ export default function CoverPage({ lang, setLang, onApply }) {
       </section>
 
       <section className="cover-contact">
-        <span className="cover-kicker">N1 / CONTACT</span>
+        <span className="cover-kicker">N1 AI SCHOOL / CONTACT</span>
         <div className="cover-contact-heading">
           <h2>{copy.contactTitle}</h2>
           <span>{copy.contactEnglish}</span>

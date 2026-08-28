@@ -21,8 +21,8 @@ const submissionKey = 'n1-submission'
 const emptyForm = {
   name: '', birthday: '', nationality: '', city: '', email: '', phone: '', contact: '',
   status: '', school: '', participation: [], start: '', days: '', duration: '', housing: '',
-  project1: '', project2: '', contribution: '', impact: '', learning: '', pursuit: '', process: '', processFile: '',
-  commitment: '', video: '', videoFile: '', refName: '', refContact: '', refWork: '', refAllowed: '', final: '',
+  project1: '', project2: '', contribution: '', impact: '', learning: '', pursuit: '', process: '', processFile: null,
+  commitment: '', video: '', videoFile: null, refName: '', refContact: '', refWork: '', refAllowed: '', final: '',
   ai: [], aiNote: '', confirmed: false, confirmName: '', confirmDate: ''
 }
 
@@ -39,9 +39,9 @@ const loadLocalDraft = () => {
     participation: Array.isArray(draft.form.participation) ? draft.form.participation : [],
     ai: Array.isArray(draft.form.ai) ? draft.form.ai : [],
     confirmed: Boolean(draft.form.confirmed),
-    // Browsers deliberately do not restore native file inputs after a reload.
-    processFile: '',
-    videoFile: ''
+    // Browsers do not restore native file inputs, but uploaded attachment metadata is durable.
+    processFile: draft.form.processFile && typeof draft.form.processFile === 'object' ? draft.form.processFile : null,
+    videoFile: draft.form.videoFile && typeof draft.form.videoFile === 'object' ? draft.form.videoFile : null
   }
   return {
     form,
@@ -96,6 +96,8 @@ function App() {
   const [submitted, setSubmitted] = useState(initialSubmission?.status === 'submitted')
   const [submission, setSubmission] = useState(initialSubmission)
   const [storageError, setStorageError] = useState(false)
+  const [uploading, setUploading] = useState({})
+  const [uploadError, setUploadError] = useState({})
   const [page, setPage] = useState(() => window.location.hash === '#apply' ? 'application' : 'cover')
   const isZh = lang === 'zh'
   const copy = useMemo(() => ({
@@ -118,7 +120,7 @@ function App() {
       language: lang,
       activeSection: active,
       projectCount,
-      form: { ...form, processFile: '', videoFile: '' },
+      form,
       savedAt: new Date().toISOString()
     })
     setStorageError(!stored)
@@ -149,6 +151,39 @@ function App() {
     window.location.hash = ''
     setPage('cover')
     window.scrollTo({ top: 0, behavior: 'auto' })
+  }
+
+  const uploadFile = async (key, file) => {
+    if (!file) return
+    const maxBytes = 4 * 1024 * 1024
+    if (file.size > maxBytes) {
+      setUploadError(prev => ({ ...prev, [key]: isZh ? '文件不能超过 4 MB。' : 'Files must be 4 MB or smaller.' }))
+      return
+    }
+    setUploadError(prev => ({ ...prev, [key]: '' }))
+    setUploading(prev => ({ ...prev, [key]: true }))
+    try {
+      let auth = submission
+      if (!auth) {
+        const result = await persist('draft')
+        auth = { id: result.id, editToken: result.editToken }
+      }
+      const body = new FormData()
+      body.append('file', file)
+      const response = await fetch('/api/uploads', {
+        method: 'POST',
+        headers: { 'x-submission-id': auth.id, 'x-edit-token': auth.editToken },
+        body,
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || !result.fileToken) throw new Error(result.error || 'Upload failed')
+      set(key, { fileToken: result.fileToken, name: result.name, size: result.size, type: result.type })
+    } catch (error) {
+      console.error(error)
+      setUploadError(prev => ({ ...prev, [key]: isZh ? '上传失败，请稍后重试。' : 'Upload failed. Please try again.' }))
+    } finally {
+      setUploading(prev => ({ ...prev, [key]: false }))
+    }
   }
 
   const persist = async (status = 'draft') => {
@@ -216,9 +251,9 @@ function App() {
           <div className="mobile-heading"><span className="eyebrow">{current.no} / {isZh ? current.zh : current.en}</span><h2>{isZh ? current.zh : current.en}</h2></div>
           {active === 'basics' && <Basics isZh={isZh} form={form} set={set} toggle={toggle} />}
           {active === 'work' && <Work isZh={isZh} form={form} set={set} projectCount={projectCount} setProjectCount={setProjectCount} />}
-          {active === 'learning' && <Learning isZh={isZh} form={form} set={set} />}
+          {active === 'learning' && <Learning isZh={isZh} form={form} set={set} onUpload={file => uploadFile('processFile', file)} uploading={uploading.processFile} uploadError={uploadError.processFile} />}
           {active === 'commitment' && <Commitment isZh={isZh} form={form} set={set} />}
-          {active === 'video' && <Video isZh={isZh} form={form} set={set} />}
+          {active === 'video' && <Video isZh={isZh} form={form} set={set} onUpload={file => uploadFile('videoFile', file)} uploading={uploading.videoFile} uploadError={uploadError.videoFile} />}
           {active === 'reference' && <Reference isZh={isZh} form={form} set={set} toggle={toggle} />}
           <div className="form-footer"><span className="required-note">{copy.required}</span><div className="footer-actions">{index > 0 && <button className="back-btn" onClick={goBack}>← <span>{copy.back}</span></button>}<button className="next-btn" onClick={goNext}><span>{index === sections.length - 1 ? copy.submit : copy.next}</span><span className="next-icon">→</span></button></div></div>
         </>}
@@ -249,19 +284,19 @@ function Work({ isZh, form, set, projectCount, setProjectCount }) {
     {projectCount < 2 && <button className="text-action" onClick={() => setProjectCount(2)}>＋ {isZh ? '添加第二个作品' : 'Add a second project'}</button>}
     <div className="rule" /><QuestionLabel no="05" title={isZh ? '你真正完成了什么' : 'What did you personally contribute?'} desc={isZh ? '从上面选一个作品，讲清楚你的贡献。' : 'Choose one project and make your contribution clear.'} />
     <Field label={isZh ? '个人贡献' : 'Your contribution'}><TextArea value={form.contribution} onChange={e => set('contribution', e.target.value)} placeholder={isZh ? '哪些部分由你完成？哪些来自队友、导师、开源代码或 AI？如果拿掉你，项目会有什么不同？' : 'What was done by you versus teammates, mentors, open source, or AI? What changes without you?'} maxLength={625} /></Field>
-    <div className="rule" /><QuestionLabel no="06" title={isZh ? '哪个结果证明你创造了真实价值' : 'Which result proves real value?'} desc={isZh ? '请给出数字，并解释它为什么重要。不超过 150 字。' : 'Give numbers and explain why they matter. Max 150 words.'} />
+    <div className="rule" /><QuestionLabel no="06" title={isZh ? '哪个结果最能证明你创造了真实价值' : 'Which result best proves you created real value?'} desc={isZh ? '请给出数字，并解释它为什么重要。不超过 150 字。可以是用户、收入、留存、使用频率、Star、引用、实验结果、性能提升、订单、部署效果或节省的时间。' : 'Give numbers and explain why they matter. Max 150 words. This could be users, revenue, retention, usage frequency, stars, citations, experimental results, performance gains, orders, deployment outcomes, or time saved.'} />
     <Field label={isZh ? '结果与影响' : 'Result & impact'}><TextArea value={form.impact} onChange={e => set('impact', e.target.value)} placeholder={isZh ? '例如：上线后有 2,300 名用户，留存率为 42%……' : 'e.g. 2,300 users after launch, with 42% retention...'} maxLength={375} /></Field>
   </div>
 }
 
-function Learning({ isZh, form, set }) {
+function Learning({ isZh, form, set, onUpload, uploading, uploadError }) {
   return <div className="section-body"><SectionIntro no="03" title={isZh ? '你如何学习与选择' : 'How you learn & choose'} desc={isZh ? '我们想了解你找到路径、穿过困难的方式。' : 'Show us how you find a path through difficulty.'} />
     <QuestionLabel no="07" title={isZh ? '过去一年，你靠自己学会的最难的一件事是什么' : 'What is the hardest thing you taught yourself?'} desc={isZh ? '为什么学？卡在哪里？如何找到路径？最后做到了什么？' : 'Why learn it? Where were you stuck? How did you find a path? What could you do by the end?'} />
     <Field label={isZh ? '你的回答' : 'Your answer'}><TextArea value={form.learning} onChange={e => set('learning', e.target.value)} placeholder={isZh ? '用一个具体的故事回答。' : 'Answer with one concrete story.'} maxLength={625} /></Field>
     <div className="rule" /><QuestionLabel no="08" title={isZh ? '你现在最认真追什么问题' : 'What problem are you seriously pursuing now?'} desc={isZh ? '问题、已做的事、最难的地方、接下来四周。' : 'The problem, what you have done, what is hardest, and the next four weeks.'} />
     <Field label={isZh ? '正在追的问题' : 'Problem in pursuit'}><TextArea value={form.pursuit} onChange={e => set('pursuit', e.target.value)} placeholder={isZh ? '不要只写方向，写清楚一个你正在验证的问题。' : 'Do not only name a direction; describe a question you are testing.'} maxLength={625} /></Field>
     <div className="rule" /><QuestionLabel no="09" title={isZh ? '请提交一份过程证据' : 'Submit one piece of process evidence'} desc={isZh ? '可以是 Git 记录、实验日志、版本历史、学习笔记、错误记录、草稿或用户反馈。' : 'Git history, experiment logs, version history, notes, error logs, drafts, or user feedback.'} />
-    <div className="upload-box"><span className="upload-icon">↑</span><div><strong>{form.processFile || (isZh ? '拖入文件或点击上传' : 'Drop a file or click to upload')}</strong><small>{isZh ? 'PDF、图片或链接均可' : 'PDF, image, or link'}</small></div><label className="upload-button" htmlFor="process-file">{isZh ? '选择文件' : 'Choose file'}</label><input id="process-file" className="file-input" type="file" accept=".pdf,image/*" onChange={e => set('processFile', e.target.files?.[0]?.name || '')} /></div>
+    <div className="upload-box"><span className="upload-icon">↑</span><div><strong>{uploading ? (isZh ? '上传中…' : 'Uploading…') : form.processFile?.name || (isZh ? '拖入文件或点击上传' : 'Drop a file or click to upload')}</strong><small>{uploadError || (form.processFile?.fileToken ? (isZh ? '已上传，可随申请一起提交' : 'Uploaded and ready to submit') : isZh ? 'PDF、图片，最大 4 MB' : 'PDF or image, up to 4 MB')}</small></div><label className="upload-button" htmlFor="process-file">{isZh ? '选择文件' : 'Choose file'}</label><input id="process-file" className="file-input" type="file" accept=".pdf,image/*" onChange={e => onUpload(e.target.files?.[0])} /></div>
     <Field label={isZh ? '或者粘贴链接' : 'Or paste a link'}><input value={form.process} onChange={e => set('process', e.target.value)} placeholder="https://" /></Field>
   </div>
 }
@@ -274,10 +309,10 @@ function Commitment({ isZh, form, set }) {
   </div>
 }
 
-function Video({ isZh, form, set }) {
+function Video({ isZh, form, set, onUpload, uploading, uploadError }) {
   return <div className="section-body"><SectionIntro no="05" title={isZh ? '视频' : 'Video'} desc={isZh ? '不剪辑，最长两分钟。不要念稿。' : 'Unedited, up to two minutes. Do not read from a script.'} />
     <QuestionLabel no="11" title={isZh ? '提交一段视频' : 'Submit a video'} desc={isZh ? '请直接回答：你在做什么、为什么做、过去一个月完成了什么、希望从 N1 获得什么。中文或英文均可。' : 'Answer directly: what you are working on, why, what you completed last month, and what you hope to gain. Chinese or English.'} />
-    <div className="upload-box video-upload"><span className="upload-icon">◉</span><div><strong>{form.videoFile || (isZh ? '拖入视频或点击上传' : 'Drop a video or click to upload')}</strong><small>{isZh ? 'MP4、MOV，最长 2 分钟' : 'MP4, MOV, up to 2 minutes'}</small></div><label className="upload-button" htmlFor="video-file">{isZh ? '选择视频' : 'Choose video'}</label><input id="video-file" className="file-input" type="file" accept="video/mp4,video/quicktime" onChange={e => set('videoFile', e.target.files?.[0]?.name || '')} /></div>
+    <div className="upload-box video-upload"><span className="upload-icon">◉</span><div><strong>{uploading ? (isZh ? '上传中…' : 'Uploading…') : form.videoFile?.name || (isZh ? '拖入视频或点击上传' : 'Drop a video or click to upload')}</strong><small>{uploadError || (form.videoFile?.fileToken ? (isZh ? '已上传，可随申请一起提交' : 'Uploaded and ready to submit') : isZh ? 'MP4、MOV，最大 4 MB，最长 2 分钟' : 'MP4, MOV, up to 4 MB and 2 minutes')}</small></div><label className="upload-button" htmlFor="video-file">{isZh ? '选择视频' : 'Choose video'}</label><input id="video-file" className="file-input" type="file" accept="video/mp4,video/quicktime" onChange={e => onUpload(e.target.files?.[0])} /></div>
     <Field label={isZh ? '或者粘贴视频链接' : 'Or paste a video link'}><input value={form.video} onChange={e => set('video', e.target.value)} placeholder="https://" /></Field>
   </div>
 }

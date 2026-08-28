@@ -32,9 +32,21 @@ if (firstField && firstField.field_name !== FEISHU_FIELDS[0].name && existing.si
 }
 
 for (const field of FEISHU_FIELDS) {
-  if (existing.has(field.name)) continue
+  const current = existing.get(field.name)
+  if (current) {
+    const desiredType = field.type || 1
+    if (current.type !== desiredType && field.type) {
+      const updateResponse = await fetch(`${apiBase}/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${tableId}/fields/${current.field_id}`, {
+        method: 'PUT', headers, body: JSON.stringify({ field_name: field.name, type: desiredType }),
+      })
+      const updateBody = await updateResponse.json()
+      if (!updateResponse.ok || updateBody.code) throw new Error(`Feishu field type update failed for ${field.name} (${updateResponse.status}, ${updateBody.code || 'unknown'})`)
+      console.log(`updated ${field.name} to type ${desiredType}`)
+    }
+    continue
+  }
   const response = await fetch(`${apiBase}/bitable/v1/apps/${process.env.FEISHU_APP_TOKEN}/tables/${tableId}/fields`, {
-    method: 'POST', headers, body: JSON.stringify({ field_name: field.name, type: 1 }),
+    method: 'POST', headers, body: JSON.stringify({ field_name: field.name, type: field.type || 1 }),
   })
   const body = await response.json()
   if (!response.ok || body.code) throw new Error(`Feishu field create failed for ${field.name} (${response.status})`)
