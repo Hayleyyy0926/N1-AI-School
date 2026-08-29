@@ -3,7 +3,7 @@ import { syncSubmissionToFeishu } from '../api/_feishu.js'
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is not configured')
 const sql = neon(process.env.DATABASE_URL)
-const submissions = await sql`SELECT id, status, language, answers, created_at, submitted_at FROM submissions WHERE status = 'submitted' ORDER BY created_at ASC`
+const submissions = await sql`SELECT id, form_version, status, language, answers, created_at, submitted_at FROM submissions WHERE status = 'submitted' ORDER BY created_at ASC`
 let synced = 0
 let failed = 0
 

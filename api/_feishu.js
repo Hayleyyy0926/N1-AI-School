@@ -1,7 +1,10 @@
+import { AI_OPTIONS, STATUS_OPTIONS } from '../src/formSchema.js'
+
 const FEISHU_API = 'https://open.feishu.cn/open-apis'
 
 export const FEISHU_FIELDS = [
   { key: 'submissionId', name: 'Submission ID' },
+  { key: 'formVersion', name: '表单版本 / Form version' },
   { key: 'status', name: '状态 / Status' },
   { key: 'language', name: '语言 / Language' },
   { key: 'createdAt', name: '创建时间 / Created at' },
@@ -12,30 +15,24 @@ export const FEISHU_FIELDS = [
   { key: 'city', name: '常住城市 / Current city' },
   { key: 'email', name: '邮箱 / Email' },
   { key: 'phone', name: '手机号 / Phone' },
-  { key: 'contact', name: '其他联系方式 / Other contact' },
+  { key: 'contact', name: '微信或其他联系方式 / WeChat or other contact' },
   { key: 'currentStatus', name: '目前状态 / Current status' },
-  { key: 'school', name: '学校专业或当前工作 / School or current work' },
-  { key: 'participation', name: '参与方式 / Participation' },
-  { key: 'start', name: '最早开始时间 / Earliest start' },
-  { key: 'days', name: '每周投入天数 / Days per week' },
-  { key: 'duration', name: '预计持续时间 / Expected duration' },
-  { key: 'housing', name: '住宿需求 / Housing needed' },
-  { key: 'project1', name: '作品一 / Project 1' },
-  { key: 'project2', name: '作品二 / Project 2' },
-  { key: 'contribution', name: '个人贡献 / Personal contribution' },
-  { key: 'impact', name: '结果与影响 / Result and impact' },
-  { key: 'learning', name: '自学挑战 / Self-taught challenge' },
-  { key: 'pursuit', name: '正在追的问题 / Problem in pursuit' },
+  { key: 'school', name: '学校专业年级或当前工作 / School major year or current work' },
+  { key: 'mostImportantWork', name: '3. 最重要的一件事 / Most important thing' },
+  { key: 'optionalDifferentWork', name: '4. 另一件不同作品（选填） / Optional different work' },
+  { key: 'selfTaughtChallenge', name: '5. 自学最难的事 / Hardest thing self-taught' },
+  { key: 'loseTrackOfTime', name: '6. 忘记时间的事情 / What makes you lose track of time' },
+  { key: 'disagreement', name: '7. 与聪明人意见不同的信念 / Disagreed belief' },
+  { key: 'nextMonth', name: '8. 下个月最想做或弄明白的事 / Next month goal' },
   { key: 'processFile', name: '过程证据文件 / Process evidence file', type: 17 },
   { key: 'process', name: '过程证据链接 / Process evidence link' },
-  { key: 'commitment', name: '时间与承诺 / Commitment' },
+  { key: 'start', name: '最早开始时间 / Earliest start' },
+  { key: 'days', name: '每周真实参与天数 / Realistic days per week' },
+  { key: 'duration', name: '预计持续时间 / Expected duration' },
+  { key: 'housing', name: '住宿需求 / Housing needed' },
+  { key: 'existingCommitments', name: '无法放下的安排 / Current commitments' },
   { key: 'videoFile', name: '视频文件 / Video file', type: 17 },
   { key: 'video', name: '视频链接 / Video link' },
-  { key: 'refName', name: '推荐人姓名 / Reference name' },
-  { key: 'refContact', name: '推荐人联系方式 / Reference contact' },
-  { key: 'refWork', name: '共同工作内容 / Reference work' },
-  { key: 'refAllowed', name: '允许联系推荐人 / Contact permission' },
-  { key: 'final', name: '补充说明 / Final note' },
   { key: 'ai', name: 'AI 使用方式 / AI use' },
   { key: 'aiNote', name: 'AI 使用说明 / AI use note' },
   { key: 'confirmed', name: '真实性确认 / Confirmed' },
@@ -43,6 +40,9 @@ export const FEISHU_FIELDS = [
   { key: 'confirmDate', name: '确认日期 / Confirmation date' },
   { key: 'answersJson', name: '完整回答 JSON / Answers JSON' },
 ]
+
+const statusLabels = Object.fromEntries(STATUS_OPTIONS.map(option => [option.value, `${option.zh} / ${option.en}`]))
+const aiLabels = Object.fromEntries(AI_OPTIONS.map(option => [option.value, `${option.zh} / ${option.en}`]))
 
 const answerFor = (answers, key) => {
   const value = answers?.[key]
@@ -83,11 +83,14 @@ export function buildFeishuFields(submission) {
   const answers = submission.answers || {}
   const values = {
     submissionId: submission.id,
+    formVersion: String(submission.form_version || 1),
     status: submission.status,
     language: submission.language,
     createdAt: formatChinaTime(submission.created_at),
     submittedAt: formatChinaTime(submission.submitted_at),
-    currentStatus: answerFor(answers, 'status'),
+    currentStatus: statusLabels[answers.status] || answerFor(answers, 'status'),
+    housing: answers.housing === 'yes' ? '是 / Yes' : answers.housing === 'no' ? '否 / No' : answerFor(answers, 'housing'),
+    ai: Array.isArray(answers.ai) ? answers.ai.map(value => aiLabels[value] || value).join('\n') : answerFor(answers, 'ai'),
     answersJson: JSON.stringify(answers),
   }
 

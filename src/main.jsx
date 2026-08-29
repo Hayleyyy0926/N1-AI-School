@@ -1,54 +1,33 @@
 import { createRoot } from 'react-dom/client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import CoverPage from './CoverPage.jsx'
+import {
+  AI_OPTIONS,
+  EMPTY_FORM,
+  FIELD_LABELS,
+  FORM_VERSION,
+  STATUS_OPTIONS,
+  TEXT_LIMITS,
+  countAnswer,
+  hasMeaningfulAnswer,
+  validateAnswers,
+} from './formSchema.js'
 import './styles.css'
 
 const sections = [
-  { id: 'basics', no: '01', zh: '基本信息', en: 'Basic information' },
-  { id: 'work', no: '02', zh: '你做过什么', en: 'What you have done' },
-  { id: 'learning', no: '03', zh: '如何学习与选择', en: 'How you learn & choose' },
-  { id: 'commitment', no: '04', zh: '时间与承诺', en: 'Time & commitment' },
-  { id: 'video', no: '05', zh: '视频', en: 'Video' },
-  { id: 'reference', no: '06', zh: '推荐人与补充', en: 'Reference & final note' },
+  { id: 'instructions', no: '00', zh: '填写说明', en: 'Before You Begin' },
+  { id: 'basics', no: '一', zh: '基本信息', en: 'Basic Information' },
+  { id: 'core-one', no: '二', zh: '核心问题 3–6', en: 'Core Questions 3–6' },
+  { id: 'core-two', no: '二', zh: '核心问题 7–10', en: 'Core Questions 7–10' },
+  { id: 'video', no: '三', zh: '视频', en: 'Video' },
+  { id: 'confirmation', no: '—', zh: 'AI 使用与确认', en: 'AI Use & Confirmation' },
 ]
 
-const statusOptionsZh = ['高中', '大学', 'Gap Year', '休学或退学', '工作', '研究', '创业', '其他']
-const statusOptionsEn = ['High school', 'University', 'Gap year', 'Leave of absence or dropout', 'Working', 'Research', 'Startup', 'Other']
-const participationOptionsZh = ['Gap Year 或休学期间全职参与', '毕业后长期入驻', '江浙沪地区每周稳定参与', '寒暑假集中参与', '围绕具体项目合作', '作为长期社区成员持续回来']
-const participationOptionsEn = ['Full-time during a gap year or leave', 'Long-term residency after graduation', 'Regular weekly participation from Shanghai–Jiangsu–Zhejiang', 'Intensive participation during school breaks', 'Project-based collaboration', 'Long-term community membership']
-const localDraftKey = 'n1-application-draft-v1'
-const submissionKey = 'n1-submission'
-const emptyForm = {
-  name: '', birthday: '', nationality: '', city: '', email: '', phone: '', contact: '',
-  status: '', school: '', participation: [], start: '', days: '', duration: '', housing: '',
-  project1: '', project2: '', contribution: '', impact: '', learning: '', pursuit: '', process: '', processFile: null,
-  commitment: '', video: '', videoFile: null, refName: '', refContact: '', refWork: '', refAllowed: '', final: '',
-  ai: [], aiNote: '', confirmed: false, confirmName: '', confirmDate: ''
-}
+const localDraftKey = 'n1-application-draft-v2'
+const submissionKey = 'n1-submission-v2'
 
 const readStoredJson = key => {
   try { return JSON.parse(window.localStorage.getItem(key) || 'null') } catch { return null }
-}
-
-const loadLocalDraft = () => {
-  const draft = readStoredJson(localDraftKey)
-  if (!draft || draft.version !== 1 || typeof draft.form !== 'object') return null
-  const form = {
-    ...emptyForm,
-    ...draft.form,
-    participation: Array.isArray(draft.form.participation) ? draft.form.participation : [],
-    ai: Array.isArray(draft.form.ai) ? draft.form.ai : [],
-    confirmed: Boolean(draft.form.confirmed),
-    // Browsers do not restore native file inputs, but uploaded attachment metadata is durable.
-    processFile: draft.form.processFile && typeof draft.form.processFile === 'object' ? draft.form.processFile : null,
-    videoFile: draft.form.videoFile && typeof draft.form.videoFile === 'object' ? draft.form.videoFile : null
-  }
-  return {
-    form,
-    language: draft.language === 'en' ? 'en' : 'zh',
-    activeSection: sections.some(section => section.id === draft.activeSection) ? draft.activeSection : 'basics',
-    projectCount: draft.projectCount === 2 || form.project2 ? 2 : 1
-  }
 }
 
 const storeJson = (key, value) => {
@@ -60,71 +39,193 @@ const storeJson = (key, value) => {
   }
 }
 
-function Field({ label, hint, children, required = false, className = '' }) {
-  return <label className={`field ${className}`}>
+const loadLocalDraft = () => {
+  const draft = readStoredJson(localDraftKey)
+  if (!draft || draft.version !== FORM_VERSION || typeof draft.form !== 'object') return null
+  return {
+    form: {
+      ...EMPTY_FORM,
+      ...draft.form,
+      ai: Array.isArray(draft.form.ai) ? draft.form.ai : [],
+      confirmed: Boolean(draft.form.confirmed),
+      processFile: draft.form.processFile && typeof draft.form.processFile === 'object' ? draft.form.processFile : null,
+      videoFile: draft.form.videoFile && typeof draft.form.videoFile === 'object' ? draft.form.videoFile : null,
+    },
+    language: draft.language === 'en' ? 'en' : 'zh',
+    activeSection: sections.some(section => section.id === draft.activeSection) ? draft.activeSection : 'instructions',
+  }
+}
+
+function Field({ label, hint, children, required = true, error, className = '' }) {
+  return <div className={`field ${error ? 'field-invalid' : ''} ${className}`}>
     <span className="field-label">{label}{required && <b className="required">*</b>}</span>
     {hint && <span className="field-hint">{hint}</span>}
     {children}
-  </label>
-}
-
-function TextArea({ value, onChange, placeholder, maxLength }) {
-  return <div className="textarea-wrap">
-    <textarea value={value} onChange={onChange} placeholder={placeholder} maxLength={maxLength} />
-    {maxLength && <span className="count">{value.length} / {maxLength}</span>}
+    {error && <span className="field-error" role="alert">{error}</span>}
   </div>
 }
 
-function CheckList({ options, values, onToggle }) {
+function TextArea({ value, onChange, label, limit, language }) {
+  const count = limit ? countAnswer(value, language) : 0
+  return <div className={`textarea-wrap ${limit && count > limit ? 'over-limit' : ''}`}>
+    <textarea aria-label={label} value={value} onChange={onChange} />
+    {limit && <span className="count">{count} / {limit} {language === 'zh' ? '字' : 'words'}</span>}
+  </div>
+}
+
+function OptionList({ options, values, onToggle, language }) {
   return <div className="check-list">
-    {options.map(option => <label className="check-row" key={option}>
-      <input type="checkbox" checked={values.includes(option)} onChange={() => onToggle(option)} />
+    {options.map(option => <label className="check-row" key={option.value}>
+      <input type="checkbox" checked={values.includes(option.value)} onChange={() => onToggle(option.value)} />
       <span className="fake-check" aria-hidden="true">✓</span>
-      <span>{option}</span>
+      <span>{option[language]}</span>
     </label>)}
   </div>
+}
+
+function Question({ no, title, children }) {
+  return <div className="question-block">
+    <div className="question-label">
+      <span className="q-no">{no}</span>
+      <div><h3>{title}</h3><div className="question-copy">{children}</div></div>
+    </div>
+  </div>
+}
+
+function SectionIntro({ no, title }) {
+  return <div className="section-intro"><span className="section-no">{no}</span><div><h2>{title}</h2></div></div>
+}
+
+function UploadBox({ id, attachment, accept, onUpload, uploading, error, language, kind = 'file' }) {
+  const isZh = language === 'zh'
+  const defaultTitle = kind === 'video'
+    ? (isZh ? '拖入视频或点击上传' : 'Drop a video or click to upload')
+    : (isZh ? '拖入附件或点击上传' : 'Drop an attachment or click to upload')
+  return <>
+    <div className={`upload-box ${error ? 'upload-invalid' : ''}`}>
+      <span className="upload-icon">{kind === 'video' ? '◉' : '↑'}</span>
+      <div>
+        <strong>{uploading ? (isZh ? '上传中…' : 'Uploading…') : attachment?.name || defaultTitle}</strong>
+        <small>{attachment?.fileToken ? (isZh ? '已上传，可随申请一起提交' : 'Uploaded and ready to submit') : (isZh ? '最大 4 MB' : 'Up to 4 MB')}</small>
+      </div>
+      <label className="upload-button" htmlFor={id}>{kind === 'video' ? (isZh ? '选择视频' : 'Choose video') : (isZh ? '选择附件' : 'Choose attachment')}</label>
+      <input id={id} className="file-input" type="file" accept={accept} onChange={event => onUpload(event.target.files?.[0])} />
+    </div>
+    {error && <span className="field-error upload-error" role="alert">{error}</span>}
+  </>
 }
 
 function App() {
   const [initialDraft] = useState(loadLocalDraft)
   const [initialSubmission] = useState(() => readStoredJson(submissionKey))
   const [lang, setLang] = useState(initialDraft?.language || 'zh')
-  const [active, setActive] = useState(initialDraft?.activeSection || 'basics')
-  const [saved, setSaved] = useState(false)
-  const [form, setForm] = useState(initialDraft?.form || { ...emptyForm })
-  const [projectCount, setProjectCount] = useState(initialDraft?.projectCount || 1)
+  const [active, setActive] = useState(initialDraft?.activeSection || 'instructions')
+  const [form, setForm] = useState(initialDraft?.form || { ...EMPTY_FORM })
   const [submitted, setSubmitted] = useState(initialSubmission?.status === 'submitted')
   const [submission, setSubmission] = useState(initialSubmission)
   const [storageError, setStorageError] = useState(false)
   const [uploading, setUploading] = useState({})
   const [uploadError, setUploadError] = useState({})
+  const [errors, setErrors] = useState({})
+  const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [autoSaveState, setAutoSaveState] = useState('local')
   const [page, setPage] = useState(() => window.location.hash === '#apply' ? 'application' : 'cover')
+  const submissionRef = useRef(initialSubmission)
+  const saveQueueRef = useRef(Promise.resolve())
   const isZh = lang === 'zh'
+  const index = sections.findIndex(section => section.id === active)
+  const current = sections[index]
+  const progress = Math.round(((index + 1) / sections.length) * 100)
+
   const copy = useMemo(() => ({
-    eyebrow: isZh ? 'N1 AI SCHOOL / APPLICATION 2026' : 'N1 AI SCHOOL / APPLICATION 2026',
-    title: isZh ? '申请表' : 'Application',
-    intro: isZh ? '我们更关心你做过什么、正在追什么，以及你能否持续行动。' : 'We care about what you have done, what you are pursuing, and whether you can keep moving.',
-    subintro: isZh ? '具体、真实、有证据，比完整和漂亮更重要。' : 'Specific, honest, and verifiable answers matter most.',
-    save: isZh ? '保存草稿' : 'Save draft',
-    saved: isZh ? '已保存' : 'Saved',
+    eyebrow: 'N1 AI SCHOOL / APPLICATION',
+    title: isZh ? 'N1 AI School 申请表' : 'N1 AI School Application',
+    intro: isZh ? '具体的东西比宏大的目标更有用。' : 'Concrete evidence matters more than ambitious claims.',
+    save: isZh ? '立即保存' : 'Save now',
+    saving: isZh ? '正在自动保存' : 'Auto-saving',
+    saved: isZh ? '已自动保存' : 'Auto-saved',
+    local: isZh ? '本地自动保存已开启' : 'Local auto-save is on',
+    saveError: isZh ? '自动保存失败' : 'Auto-save failed',
     submitted: isZh ? '已提交' : 'Submitted',
     next: isZh ? '下一部分' : 'Next section',
     submit: isZh ? '提交申请' : 'Submit application',
     back: isZh ? '上一部分' : 'Previous section',
-    required: isZh ? '带 * 为必填项' : 'Fields marked * are required',
+    required: isZh ? '除标注选填外，其他问题均为必填' : 'All questions are required unless marked optional',
   }), [isZh])
+
+  const clearFieldError = key => {
+    const related = key === 'process' || key === 'processFile' ? 'processEvidence' : key === 'video' || key === 'videoFile' ? 'videoEvidence' : key
+    setErrors(previous => {
+      if (!previous[related]) return previous
+      const next = { ...previous }
+      delete next[related]
+      return next
+    })
+  }
+
+  const set = (key, value) => {
+    setForm(previous => ({ ...previous, [key]: value }))
+    clearFieldError(key)
+  }
+
+  const toggle = (key, value) => {
+    setForm(previous => ({ ...previous, [key]: previous[key].includes(value) ? previous[key].filter(item => item !== value) : [...previous[key], value] }))
+    clearFieldError(key)
+  }
+
+  const persistNow = async (status = 'draft') => {
+    const currentSubmission = submissionRef.current
+    if (currentSubmission?.status === 'submitted' && status !== 'submitted') throw new Error('Submitted applications must remain submitted')
+    const payload = { formVersion: FORM_VERSION, language: lang, answers: form, status }
+    const response = currentSubmission
+      ? await fetch(`/api/submissions/${currentSubmission.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-edit-token': currentSubmission.editToken }, body: JSON.stringify(payload) })
+      : await fetch('/api/submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
+    const result = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      const error = new Error(result.error || 'Unable to save application')
+      error.details = result
+      throw error
+    }
+    const nextSubmission = currentSubmission
+      ? { ...currentSubmission, status: result.status, formVersion: FORM_VERSION }
+      : { id: result.id, editToken: result.editToken, status: result.status, formVersion: FORM_VERSION }
+    submissionRef.current = nextSubmission
+    setSubmission(nextSubmission)
+    if (!storeJson(submissionKey, nextSubmission)) setStorageError(true)
+    return result
+  }
+
+  const persist = (status = 'draft') => {
+    const task = saveQueueRef.current.catch(() => {}).then(() => persistNow(status))
+    saveQueueRef.current = task
+    return task
+  }
 
   useEffect(() => {
     const stored = storeJson(localDraftKey, {
-      version: 1,
+      version: FORM_VERSION,
       language: lang,
       activeSection: active,
-      projectCount,
       form,
-      savedAt: new Date().toISOString()
+      savedAt: new Date().toISOString(),
     })
     setStorageError(!stored)
-  }, [active, form, lang, projectCount])
+  }, [active, form, lang])
+
+  useEffect(() => {
+    if (page !== 'application' || submission?.status === 'submitted' || !hasMeaningfulAnswer(form)) return undefined
+    setAutoSaveState('saving')
+    const timer = window.setTimeout(async () => {
+      try {
+        await persist('draft')
+        setAutoSaveState('saved')
+      } catch (error) {
+        console.error(error)
+        setAutoSaveState(import.meta.env.DEV ? 'local' : 'error')
+      }
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  }, [form, lang, page, submission?.status])
 
   useEffect(() => {
     const syncPage = () => {
@@ -134,12 +235,6 @@ function App() {
     window.addEventListener('hashchange', syncPage)
     return () => window.removeEventListener('hashchange', syncPage)
   }, [])
-
-  const set = (key, value) => setForm(prev => ({ ...prev, [key]: value }))
-  const toggle = (key, value) => set(key, form[key].includes(value) ? form[key].filter(v => v !== value) : [...form[key], value])
-  const index = sections.findIndex(s => s.id === active)
-  const progress = Math.round(((index + 1) / sections.length) * 100)
-  const current = sections[index]
 
   const openApplication = () => {
     if (window.location.hash !== '#apply') window.location.hash = 'apply'
@@ -155,15 +250,14 @@ function App() {
 
   const uploadFile = async (key, file) => {
     if (!file) return
-    const maxBytes = 4 * 1024 * 1024
-    if (file.size > maxBytes) {
-      setUploadError(prev => ({ ...prev, [key]: isZh ? '文件不能超过 4 MB。' : 'Files must be 4 MB or smaller.' }))
+    if (file.size > 4 * 1024 * 1024) {
+      setUploadError(previous => ({ ...previous, [key]: isZh ? '文件不能超过 4 MB。' : 'Files must be 4 MB or smaller.' }))
       return
     }
-    setUploadError(prev => ({ ...prev, [key]: '' }))
-    setUploading(prev => ({ ...prev, [key]: true }))
+    setUploadError(previous => ({ ...previous, [key]: '' }))
+    setUploading(previous => ({ ...previous, [key]: true }))
     try {
-      let auth = submission
+      let auth = submissionRef.current
       if (!auth) {
         const result = await persist('draft')
         auth = { id: result.id, editToken: result.editToken }
@@ -180,40 +274,55 @@ function App() {
       set(key, { fileToken: result.fileToken, name: result.name, size: result.size, type: result.type })
     } catch (error) {
       console.error(error)
-      setUploadError(prev => ({ ...prev, [key]: isZh ? '上传失败，请稍后重试。' : 'Upload failed. Please try again.' }))
+      setUploadError(previous => ({ ...previous, [key]: isZh ? '上传失败，请稍后重试。' : 'Upload failed. Please try again.' }))
     } finally {
-      setUploading(prev => ({ ...prev, [key]: false }))
+      setUploading(previous => ({ ...previous, [key]: false }))
     }
-  }
-
-  const persist = async (status = 'draft') => {
-    if (submission?.status === 'submitted' && status !== 'submitted') throw new Error('Submitted applications cannot be edited')
-    const payload = { language: lang, answers: form, status }
-    const response = submission
-      ? await fetch(`/api/submissions/${submission.id}`, { method: 'PATCH', headers: { 'content-type': 'application/json', 'x-edit-token': submission.editToken }, body: JSON.stringify(payload) })
-      : await fetch('/api/submissions', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) })
-    if (!response.ok) throw new Error('Unable to save application')
-    const result = await response.json()
-    const nextSubmission = submission
-      ? { ...submission, status: result.status }
-      : { id: result.id, editToken: result.editToken, status: result.status }
-    setSubmission(nextSubmission)
-    if (!storeJson(submissionKey, nextSubmission)) setStorageError(true)
-    return result
   }
 
   const goNext = async () => {
-    if (index === sections.length - 1) {
-      try { await persist('submitted'); setSubmitted(true) } catch (error) { console.error(error); alert(isZh ? '提交失败，请稍后再试。' : 'Submission failed. Please try again.') }
+    if (index < sections.length - 1) {
+      setActive(sections[index + 1].id)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
-    if (index < sections.length - 1) setActive(sections[index + 1].id)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const validation = validateAnswers(form, lang)
+    if (!validation.valid) {
+      setErrors(validation.errors)
+      setSubmitAttempted(true)
+      if (validation.firstSection) setActive(validation.firstSection)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+    if (Object.values(uploading).some(Boolean)) {
+      setSubmitAttempted(true)
+      return
+    }
+    try {
+      setSubmitAttempted(false)
+      setAutoSaveState('saving')
+      await persist('submitted')
+      setAutoSaveState('saved')
+      setSubmitted(true)
+    } catch (error) {
+      console.error(error)
+      if (error.details?.errors) {
+        setErrors(error.details.errors)
+        setSubmitAttempted(true)
+        if (error.details.firstSection) setActive(error.details.firstSection)
+      } else {
+        alert(isZh ? '提交失败，请稍后再试。' : 'Submission failed. Please try again.')
+      }
+    }
   }
+
   const goBack = () => {
     if (index > 0) setActive(sections[index - 1].id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
+
+  const autoSaveLabel = submission?.status === 'submitted' ? copy.submitted : copy[autoSaveState]
+  const missingLabels = Object.keys(errors).map(key => FIELD_LABELS[lang][key]).filter(Boolean)
 
   if (page === 'cover') return <CoverPage lang={lang} setLang={setLang} onApply={openApplication} />
 
@@ -221,13 +330,11 @@ function App() {
     <header className="topbar">
       <button className="brand brand-button" onClick={openCover} aria-label={isZh ? '返回首页' : 'Back to cover'}><span className="brand-mark">N1</span><span className="brand-divider" /><span className="brand-type">AI SCHOOL</span></button>
       <div className="top-actions">
-        <button className="save-btn" disabled={submission?.status === 'submitted'} onClick={async () => { try { await persist('draft'); setSaved(true); setTimeout(() => setSaved(false), 1800) } catch (error) { console.error(error); alert(isZh ? '草稿保存失败，请稍后再试。' : 'Draft save failed. Please try again.') } }} aria-label={copy.save}>
-          <span className="save-dot" />{submission?.status === 'submitted' ? copy.submitted : saved ? copy.saved : copy.save}
+        <button className="save-btn" disabled={submission?.status === 'submitted'} onClick={async () => { try { setAutoSaveState('saving'); await persist('draft'); setAutoSaveState('saved') } catch (error) { console.error(error); setAutoSaveState('error') } }} aria-label={copy.save}>
+          <span className={`save-dot ${autoSaveState}`} />{autoSaveLabel}
         </button>
         <div className="language-toggle" role="group" aria-label="Language">
-          <button className={isZh ? 'active' : ''} onClick={() => setLang('zh')}>中</button>
-          <span>/</span>
-          <button className={!isZh ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
+          <button className={isZh ? 'active' : ''} onClick={() => setLang('zh')}>中</button><span>/</span><button className={!isZh ? 'active' : ''} onClick={() => setLang('en')}>EN</button>
         </div>
       </div>
     </header>
@@ -237,7 +344,7 @@ function App() {
 
     <div className="layout">
       <aside className="side-nav">
-        <div className="side-intro"><span className="eyebrow">{copy.eyebrow}</span><h1>{copy.title}</h1><p>{copy.intro}</p><p>{copy.subintro}</p></div>
+        <div className="side-intro"><span className="eyebrow">{copy.eyebrow}</span><h1>{copy.title}</h1><p>{copy.intro}</p></div>
         <nav aria-label="Form sections">
           {sections.map(section => <button key={section.id} className={`nav-item ${section.id === active ? 'current' : ''}`} onClick={() => setActive(section.id)}>
             <span className="nav-no">{section.no}</span><span className="nav-name"><span>{isZh ? section.zh : section.en}</span><small>{isZh ? section.en : section.zh}</small></span><span className="nav-arrow">↗</span>
@@ -247,14 +354,15 @@ function App() {
       </aside>
 
       <main className="form-main">
-        {submitted ? <div className="success-panel"><span className="success-mark">✓</span><span className="eyebrow">APPLICATION RECEIVED</span><h2>{isZh ? '申请已提交' : 'Application submitted'}</h2><p>{isZh ? '感谢你认真完成这份申请。我们会在下一轮联系你。' : 'Thank you for taking the time to apply. We will be in touch about the next round.'}</p><button className="next-btn" onClick={() => setSubmitted(false)}>{isZh ? '返回查看申请' : 'Review application'} <span className="next-icon">→</span></button></div> : <>
+        {submitted ? <div className="success-panel"><span className="success-mark">✓</span><span className="eyebrow">APPLICATION RECEIVED</span><h2>{isZh ? '申请已提交' : 'Application submitted'}</h2><p>{isZh ? '感谢你认真完成这份申请。我们会在下一轮联系你。' : 'Thank you for taking the time to apply. We will be in touch about the next stage.'}</p><button className="next-btn" onClick={() => setSubmitted(false)}>{isZh ? '返回查看申请' : 'Review application'} <span className="next-icon">→</span></button></div> : <>
           <div className="mobile-heading"><span className="eyebrow">{current.no} / {isZh ? current.zh : current.en}</span><h2>{isZh ? current.zh : current.en}</h2></div>
-          {active === 'basics' && <Basics isZh={isZh} form={form} set={set} toggle={toggle} />}
-          {active === 'work' && <Work isZh={isZh} form={form} set={set} projectCount={projectCount} setProjectCount={setProjectCount} />}
-          {active === 'learning' && <Learning isZh={isZh} form={form} set={set} onUpload={file => uploadFile('processFile', file)} uploading={uploading.processFile} uploadError={uploadError.processFile} />}
-          {active === 'commitment' && <Commitment isZh={isZh} form={form} set={set} />}
-          {active === 'video' && <Video isZh={isZh} form={form} set={set} onUpload={file => uploadFile('videoFile', file)} uploading={uploading.videoFile} uploadError={uploadError.videoFile} />}
-          {active === 'reference' && <Reference isZh={isZh} form={form} set={set} toggle={toggle} />}
+          {submitAttempted && missingLabels.length > 0 && <div className="validation-summary" role="alert"><strong>{isZh ? '请完成所有必填问题后再提交。' : 'Complete every required question before submitting.'}</strong><p>{missingLabels.join(isZh ? '、' : ', ')}</p></div>}
+          {active === 'instructions' && <Instructions isZh={isZh} />}
+          {active === 'basics' && <Basics language={lang} form={form} set={set} errors={errors} />}
+          {active === 'core-one' && <CoreOne language={lang} form={form} set={set} errors={errors} />}
+          {active === 'core-two' && <CoreTwo language={lang} form={form} set={set} errors={errors} onUpload={file => uploadFile('processFile', file)} uploading={uploading.processFile} uploadError={uploadError.processFile} />}
+          {active === 'video' && <Video language={lang} form={form} set={set} errors={errors} onUpload={file => uploadFile('videoFile', file)} uploading={uploading.videoFile} uploadError={uploadError.videoFile} />}
+          {active === 'confirmation' && <Confirmation language={lang} form={form} set={set} toggle={toggle} errors={errors} />}
           <div className="form-footer"><span className="required-note">{copy.required}</span><div className="footer-actions">{index > 0 && <button className="back-btn" onClick={goBack}>← <span>{copy.back}</span></button>}<button className="next-btn" onClick={goNext}><span>{index === sections.length - 1 ? copy.submit : copy.next}</span><span className="next-icon">→</span></button></div></div>
         </>}
       </main>
@@ -262,76 +370,123 @@ function App() {
   </div>
 }
 
-function Basics({ isZh, form, set, toggle }) {
-  return <div className="section-body"><SectionIntro no="01" title={isZh ? '基本信息' : 'Basic information'} desc={isZh ? '先从你现在所处的位置开始。' : 'Start with where you are right now.'} />
-    <div className="field-grid two"><Field label={isZh ? '姓名' : 'Full name'} required><input value={form.name} onChange={e => set('name', e.target.value)} placeholder={isZh ? '你的姓名' : 'Your name'} /></Field><Field label={isZh ? '出生日期' : 'Date of birth'} required><input type="date" value={form.birthday} onChange={e => set('birthday', e.target.value)} /></Field></div>
-    <div className="field-grid three"><Field label={isZh ? '国籍' : 'Nationality'}><input value={form.nationality} onChange={e => set('nationality', e.target.value)} placeholder={isZh ? '例如：中国' : 'e.g. China'} /></Field><Field label={isZh ? '常住城市' : 'Current city'} required><input value={form.city} onChange={e => set('city', e.target.value)} placeholder={isZh ? '你现在生活的城市' : 'Where you live now'} /></Field><Field label={isZh ? '邮箱' : 'Email'} required><input type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="you@example.com" /></Field></div>
-    <div className="field-grid two"><Field label={isZh ? '手机号' : 'Phone number'}><input value={form.phone} onChange={e => set('phone', e.target.value)} placeholder={isZh ? '手机号码' : 'Phone number'} /></Field><Field label={isZh ? '微信或其他联系方式' : 'WeChat or another contact'}><input value={form.contact} onChange={e => set('contact', e.target.value)} placeholder={isZh ? '选填' : 'Optional'} /></Field></div>
+function Instructions({ isZh }) {
+  return <div className="section-body instruction-body">
+    <SectionIntro no="00" title="填写说明｜Before You Begin" />
+    {isZh ? <>
+      <p>我们不要求你已经很厉害，也不在意你的回答写得是否漂亮。</p>
+      <p>我们想知道三件事：</p>
+      <ul><li>你真的做过什么？</li><li>什么东西会让你忍不住一直追下去？</li><li>没人告诉你下一步的时候，你会怎么办？</li></ul>
+      <p>代码、产品、论文、实验、机器人、游戏、公司，甚至一次失败都可以。具体的东西比宏大的目标更有用。</p>
+      <p>你可以使用 AI 翻译、整理或讨论，但请保留自己的判断。我们可能会在下一轮随便挑一个回答继续追问。</p>
+      <p>不要猜我们想听什么。</p>
+    </> : <>
+      <p>We don’t expect you to be accomplished, and we don’t care whether your answers sound impressive.</p>
+      <p>We want to understand three things:</p>
+      <ul><li>What have you actually done?</li><li>What do you keep pursuing without being asked?</li><li>What do you do when nobody tells you what to do next?</li></ul>
+      <p>Code, products, papers, experiments, robots, games, companies, or even a failed attempt are all useful. Concrete evidence matters more than ambitious claims.</p>
+      <p>You may use AI to translate, organize, or discuss your answers, but keep your own judgment. We may ask you about anything you submit.</p>
+      <p>Don’t try to guess what we want to hear.</p>
+    </>}
+  </div>
+}
+
+function Basics({ language, form, set, errors }) {
+  const isZh = language === 'zh'
+  return <div className="section-body"><SectionIntro no="一" title={isZh ? '基本信息｜Basic Information' : 'Basic Information｜基本信息'} />
+    <Question no="01" title={isZh ? '个人信息｜Personal Information' : 'Personal Information｜个人信息'}><p>{isZh ? '姓名、出生日期、国籍、常住城市、邮箱、手机号、微信或其他联系方式。' : 'Full name, date of birth, nationality, current city, email, phone number, WeChat, or another contact method.'}</p></Question>
+    <div className="field-grid two"><Field label={isZh ? '姓名' : 'Full name'} error={errors.name}><input aria-label={isZh ? '姓名' : 'Full name'} value={form.name} onChange={event => set('name', event.target.value)} /></Field><Field label={isZh ? '出生日期' : 'Date of birth'} error={errors.birthday}><input aria-label={isZh ? '出生日期' : 'Date of birth'} type="date" value={form.birthday} onChange={event => set('birthday', event.target.value)} /></Field></div>
+    <div className="field-grid three"><Field label={isZh ? '国籍' : 'Nationality'} error={errors.nationality}><input aria-label={isZh ? '国籍' : 'Nationality'} value={form.nationality} onChange={event => set('nationality', event.target.value)} /></Field><Field label={isZh ? '常住城市' : 'Current city'} error={errors.city}><input aria-label={isZh ? '常住城市' : 'Current city'} value={form.city} onChange={event => set('city', event.target.value)} /></Field><Field label={isZh ? '邮箱' : 'Email'} error={errors.email}><input aria-label={isZh ? '邮箱' : 'Email'} type="email" value={form.email} onChange={event => set('email', event.target.value)} /></Field></div>
+    <div className="field-grid two"><Field label={isZh ? '手机号' : 'Phone number'} error={errors.phone}><input aria-label={isZh ? '手机号' : 'Phone number'} value={form.phone} onChange={event => set('phone', event.target.value)} /></Field><Field label={isZh ? '微信或其他联系方式' : 'WeChat or another contact method'} error={errors.contact}><input aria-label={isZh ? '微信或其他联系方式' : 'WeChat or another contact method'} value={form.contact} onChange={event => set('contact', event.target.value)} /></Field></div>
     <div className="rule" />
-    <QuestionLabel no="02" title={isZh ? '目前状态' : 'Current status'} desc={isZh ? '请选择最符合你当前情况的一项。' : 'Choose the option that best describes you.'} />
-    <Field label={isZh ? '状态' : 'Status'} required><div className="pill-grid">{(isZh ? statusOptionsZh : statusOptionsEn).map(option => <button type="button" key={option} className={form.status === option ? 'selected' : ''} onClick={() => set('status', option)}>{option}</button>)}</div></Field>
-    <Field label={isZh ? '学校、专业、年级或当前正在做的事情' : 'School, major, year, or what you are currently working on'}><input value={form.school} onChange={e => set('school', e.target.value)} placeholder={isZh ? '用一句话介绍你现在的状态' : 'Describe your current focus in one sentence'} /></Field>
+    <Question no="02" title={isZh ? '目前状态｜Current Status' : 'Current Status｜目前状态'}>
+      <p>{isZh ? '请选择最符合你当前情况的一项：' : 'Choose the option that best describes your current status:'}</p>
+      <ul>{STATUS_OPTIONS.map(option => <li key={option.value}>{option[language]}</li>)}</ul>
+      <p>{isZh ? '请具体填写学校、专业、年级或当前正在做的事情。' : 'Please include your school, major, year, or what you are currently working on.'}</p>
+    </Question>
+    <Field label={isZh ? '目前状态' : 'Current status'} error={errors.status}><div className="pill-grid">{STATUS_OPTIONS.map(option => <button type="button" key={option.value} className={form.status === option.value ? 'selected' : ''} onClick={() => set('status', option.value)}>{option[language]}</button>)}</div></Field>
+    <Field label={isZh ? '学校、专业、年级或当前正在做的事情' : 'School, major, year, or what you are currently working on'} error={errors.school}><input aria-label={isZh ? '学校、专业、年级或当前正在做的事情' : 'School, major, year, or current work'} value={form.school} onChange={event => set('school', event.target.value)} /></Field>
+  </div>
+}
+
+function CoreOne({ language, form, set, errors }) {
+  const isZh = language === 'zh'
+  return <div className="section-body"><SectionIntro no="二" title={isZh ? '核心问题｜Core Questions' : 'Core Questions｜核心问题'} />
+    <Question no="03" title={isZh ? '请告诉我们你做过最重要的一件事｜Tell us about the most important thing you have done' : 'Tell us about the most important thing you have done｜请告诉我们你做过最重要的一件事'}>
+      {isZh ? <><p>不一定是最成功的。</p><p>可以是代码、产品、论文、实验、机器人、硬件、游戏、公司、内容、社区，或者任何你认真做过的东西。</p><p>请告诉我们：</p><ul><li>你为什么开始做它</li><li>你具体做了什么</li><li>哪些部分不是你做的</li><li>最难的地方是什么</li><li>最后发生了什么</li><li>如果有，请提供代码、数据、用户、实验结果、版本记录或其他证据</li></ul><p>我们不在意它看起来有多厉害，更想知道你到底做了什么。</p><p>最多 300 字。</p></> : <><p>It does not have to be your most successful work.</p><p>It can be code, a product, paper, experiment, robot, hardware project, game, company, content, community, or anything you seriously worked on.</p><p>Please tell us:</p><ul><li>Why you started it</li><li>What you specifically did</li><li>Which parts were not done by you</li><li>What was the hardest part</li><li>What happened in the end</li><li>If available, provide code, data, users, experiment results, version history, or other evidence</li></ul><p>We care less about how impressive it looks than about what you actually did.</p><p>Maximum 300 words.</p></>}
+    </Question>
+    <Field label={isZh ? '回答' : 'Answer'} error={errors.mostImportantWork}><TextArea label={isZh ? '第 3 题回答' : 'Question 3 answer'} value={form.mostImportantWork} onChange={event => set('mostImportantWork', event.target.value)} limit={TEXT_LIMITS.mostImportantWork} language={language} /></Field>
     <div className="rule" />
-    <QuestionLabel no="03" title={isZh ? '你希望如何参与 N1 AI School' : 'How would you like to participate?'} desc={isZh ? '可多选，并补充你的时间安排。' : 'Select all that apply, then tell us about your availability.'} />
-    <CheckList options={isZh ? participationOptionsZh : participationOptionsEn} values={form.participation} onToggle={v => toggle('participation', v)} />
-    <div className="field-grid four"><Field label={isZh ? '最早开始时间' : 'Earliest start date'}><input type="date" value={form.start} onChange={e => set('start', e.target.value)} /></Field><Field label={isZh ? '每周投入天数' : 'Days per week'}><input value={form.days} onChange={e => set('days', e.target.value)} placeholder="0" /></Field><Field label={isZh ? '预计持续多久' : 'Expected duration'}><input value={form.duration} onChange={e => set('duration', e.target.value)} placeholder={isZh ? '例如：6个月' : 'e.g. 6 months'} /></Field><Field label={isZh ? '是否需要住宿' : 'Housing needed?'}><div className="radio-row"><label><input type="radio" name="housing" checked={form.housing === 'yes'} onChange={() => set('housing', 'yes')} /> {isZh ? '是' : 'Yes'}</label><label><input type="radio" name="housing" checked={form.housing === 'no'} onChange={() => set('housing', 'no')} /> {isZh ? '否' : 'No'}</label></div></Field></div>
+    <Question no="04" title={isZh ? '【选填】如果还有一件完全不同的作品能帮助我们理解你，可以提交｜Optional: Share another substantially different piece of work' : 'Optional: Share another substantially different piece of work｜【选填】如果还有一件完全不同的作品能帮助我们理解你，可以提交'}><p>{isZh ? '最多 200 字，可附链接或证据。' : 'Maximum 200 words. Links or evidence may be included.'}</p></Question>
+    <Field label={isZh ? '回答' : 'Answer'} required={false} error={errors.optionalDifferentWork}><TextArea label={isZh ? '第 4 题回答' : 'Question 4 answer'} value={form.optionalDifferentWork} onChange={event => set('optionalDifferentWork', event.target.value)} limit={TEXT_LIMITS.optionalDifferentWork} language={language} /></Field>
+    <div className="rule" />
+    <Question no="05" title={isZh ? '过去一年，你靠自己学会的最难的一件事是什么？｜What is the hardest thing you taught yourself in the past year?' : 'What is the hardest thing you taught yourself in the past year?｜过去一年，你靠自己学会的最难的一件事是什么？'}>
+      {isZh ? <><p>告诉我们你一开始不会什么，在哪里卡了最久，以及最后是怎么弄明白的。</p><p>如果你用过 AI、老师、朋友、论文、课程或开源项目，也请告诉我们它们分别帮了你什么。</p><p>不超过 250 字。</p></> : <><p>Tell us what you did not know at the beginning, where you were stuck the longest, and how you eventually figured it out.</p><p>If you used AI, teachers, friends, papers, courses, or open-source projects, tell us what each of them helped you with.</p><p>Maximum 250 words.</p></>}
+    </Question>
+    <Field label={isZh ? '回答' : 'Answer'} error={errors.selfTaughtChallenge}><TextArea label={isZh ? '第 5 题回答' : 'Question 5 answer'} value={form.selfTaughtChallenge} onChange={event => set('selfTaughtChallenge', event.target.value)} limit={TEXT_LIMITS.selfTaughtChallenge} language={language} /></Field>
+    <div className="rule" />
+    <Question no="06" title={isZh ? '什么事情会让你忘记时间？｜What makes you lose track of time?' : 'What makes you lose track of time?｜什么事情会让你忘记时间？'}>
+      {isZh ? <><p>过去半年，有没有一件事情，你会自己一直做下去，即使没有作业、比赛、老师、老板或截止日期？</p><p>你在做什么？最近一次是什么时候？你连续做了多久？</p><p>不超过 150 字。</p></> : <><p>In the past six months, is there something you kept doing on your own even without homework, competitions, teachers, bosses, or deadlines?</p><p>What were you doing? When was the most recent time? How long did you keep doing it continuously?</p><p>Maximum 150 words.</p></>}
+    </Question>
+    <Field label={isZh ? '回答' : 'Answer'} error={errors.loseTrackOfTime}><TextArea label={isZh ? '第 6 题回答' : 'Question 6 answer'} value={form.loseTrackOfTime} onChange={event => set('loseTrackOfTime', event.target.value)} limit={TEXT_LIMITS.loseTrackOfTime} language={language} /></Field>
   </div>
 }
 
-function Work({ isZh, form, set, projectCount, setProjectCount }) {
-  return <div className="section-body"><SectionIntro no="02" title={isZh ? '你做过什么' : 'What you have done'} desc={isZh ? '具体、真实、有证据。最多提交两个作品。' : 'Specific, honest, and verifiable. Share up to two pieces of work.'} />
-    {[...Array(projectCount)].map((_, i) => <Field key={i} label={`${isZh ? '作品' : 'Project'} ${i + 1}`} hint={isZh ? '问题、你的工作、时间、结果、链接或证据。不超过 200 字。' : 'Problem, your role, time, result, and evidence. Max 200 words.'} className="large-field"><TextArea value={form[`project${i + 1}`]} onChange={e => set(`project${i + 1}`, e.target.value)} placeholder={isZh ? '这个作品解决了什么问题？你具体做了什么？' : 'What problem did it solve? What did you personally do?'} maxLength={500} /></Field>)}
-    {projectCount < 2 && <button className="text-action" onClick={() => setProjectCount(2)}>＋ {isZh ? '添加第二个作品' : 'Add a second project'}</button>}
-    <div className="rule" /><QuestionLabel no="05" title={isZh ? '你真正完成了什么' : 'What did you personally contribute?'} desc={isZh ? '从上面选一个作品，讲清楚你的贡献。' : 'Choose one project and make your contribution clear.'} />
-    <Field label={isZh ? '个人贡献' : 'Your contribution'}><TextArea value={form.contribution} onChange={e => set('contribution', e.target.value)} placeholder={isZh ? '哪些部分由你完成？哪些来自队友、导师、开源代码或 AI？如果拿掉你，项目会有什么不同？' : 'What was done by you versus teammates, mentors, open source, or AI? What changes without you?'} maxLength={625} /></Field>
-    <div className="rule" /><QuestionLabel no="06" title={isZh ? '哪个结果最能证明你创造了真实价值' : 'Which result best proves you created real value?'} desc={isZh ? '请给出数字，并解释它为什么重要。不超过 150 字。可以是用户、收入、留存、使用频率、Star、引用、实验结果、性能提升、订单、部署效果或节省的时间。' : 'Give numbers and explain why they matter. Max 150 words. This could be users, revenue, retention, usage frequency, stars, citations, experimental results, performance gains, orders, deployment outcomes, or time saved.'} />
-    <Field label={isZh ? '结果与影响' : 'Result & impact'}><TextArea value={form.impact} onChange={e => set('impact', e.target.value)} placeholder={isZh ? '例如：上线后有 2,300 名用户，留存率为 42%……' : 'e.g. 2,300 users after launch, with 42% retention...'} maxLength={375} /></Field>
+function CoreTwo({ language, form, set, errors, onUpload, uploading, uploadError }) {
+  const isZh = language === 'zh'
+  return <div className="section-body"><SectionIntro no="二" title={isZh ? '核心问题｜Core Questions' : 'Core Questions｜核心问题'} />
+    <Question no="07" title={isZh ? '有什么事情是你相信的，但身边很多聪明的人不同意？｜What is something you believe that many smart people around you disagree with?' : 'What is something you believe that many smart people around you disagree with?｜有什么事情是你相信的，但身边很多聪明的人不同意？'}>
+      {isZh ? <><p>为什么你仍然这么认为？</p><p>什么证据会让你改变想法？</p><p>不超过 200 字。</p></> : <><p>Why do you still believe it?</p><p>What evidence would change your mind?</p><p>Maximum 200 words.</p></>}
+    </Question>
+    <Field label={isZh ? '回答' : 'Answer'} error={errors.disagreement}><TextArea label={isZh ? '第 7 题回答' : 'Question 7 answer'} value={form.disagreement} onChange={event => set('disagreement', event.target.value)} limit={TEXT_LIMITS.disagreement} language={language} /></Field>
+    <div className="rule" />
+    <Question no="08" title={isZh ? '如果接下来一个月完全由你自己决定，你最想把什么做出来或弄明白？｜If you could decide everything for the next month, what would you most want to build or figure out?' : 'If you could decide everything for the next month, what would you most want to build or figure out?｜如果接下来一个月完全由你自己决定，你最想把什么做出来或弄明白？'}>
+      {isZh ? <><p>为什么是它？</p><p>你已经开始了吗？如果开始了，做到了哪里？</p><p>明天你会做的第一件事是什么？</p><p>不超过 250 字。</p></> : <><p>Why this?</p><p>Have you already started? If so, how far have you gotten?</p><p>What is the first thing you will do tomorrow?</p><p>Maximum 250 words.</p></>}
+    </Question>
+    <Field label={isZh ? '回答' : 'Answer'} error={errors.nextMonth}><TextArea label={isZh ? '第 8 题回答' : 'Question 8 answer'} value={form.nextMonth} onChange={event => set('nextMonth', event.target.value)} limit={TEXT_LIMITS.nextMonth} language={language} /></Field>
+    <div className="rule" />
+    <Question no="09" title={isZh ? '给我们看一点你做事的过程｜Show us a little of your process' : 'Show us a little of your process｜给我们看一点你做事的过程'}>
+      {isZh ? <><p>Git history、实验记录、版本历史、学习笔记、失败记录、草稿、用户聊天、项目复盘都可以。</p><p>不需要整理，也不需要漂亮。原始材料更好。</p><p>附件或链接。</p></> : <><p>Git history, experiment records, version history, learning notes, failure records, drafts, user conversations, or project retrospectives are all acceptable.</p><p>You do not need to organize or polish it. Raw material is better.</p><p>Attachment or link.</p></>}
+    </Question>
+    <UploadBox id="process-file" attachment={form.processFile} accept=".pdf,.txt,.md,.doc,.docx,image/*" onUpload={onUpload} uploading={uploading} error={uploadError || errors.processEvidence} language={language} />
+    <Field label={isZh ? '链接' : 'Link'} error={errors.processEvidence && !form.processFile?.fileToken ? errors.processEvidence : ''}><input aria-label={isZh ? '第 9 题链接' : 'Question 9 link'} type="url" value={form.process} onChange={event => set('process', event.target.value)} placeholder="https://" /></Field>
+    <div className="rule" />
+    <Question no="10" title={isZh ? '参与安排｜Participation' : 'Participation｜参与安排'}>
+      {isZh ? <><p>如果加入：</p><ul><li>最早什么时候可以开始？</li><li>每周真实能来几天？</li><li>预计持续多久？</li><li>是否需要住宿？</li><li>目前有哪些无法放下的学校、工作或项目安排？</li></ul></> : <><p>If you join:</p><ul><li>When can you start at the earliest?</li><li>How many days per week can you realistically participate?</li><li>How long do you expect to participate?</li><li>Do you need housing?</li><li>What school, work, or project commitments do you currently need to maintain?</li></ul></>}
+    </Question>
+    <div className="field-grid four"><Field label={isZh ? '最早开始时间' : 'Earliest start date'} error={errors.start}><input aria-label={isZh ? '最早开始时间' : 'Earliest start date'} type="date" value={form.start} onChange={event => set('start', event.target.value)} /></Field><Field label={isZh ? '每周真实能来几天' : 'Days per week'} error={errors.days}><input aria-label={isZh ? '每周真实能来几天' : 'Days per week'} value={form.days} onChange={event => set('days', event.target.value)} /></Field><Field label={isZh ? '预计持续多久' : 'Expected duration'} error={errors.duration}><input aria-label={isZh ? '预计持续多久' : 'Expected duration'} value={form.duration} onChange={event => set('duration', event.target.value)} /></Field><Field label={isZh ? '是否需要住宿' : 'Do you need housing?'} error={errors.housing}><div className="radio-row"><label><input type="radio" name="housing" checked={form.housing === 'yes'} onChange={() => set('housing', 'yes')} /> {isZh ? '是' : 'Yes'}</label><label><input type="radio" name="housing" checked={form.housing === 'no'} onChange={() => set('housing', 'no')} /> {isZh ? '否' : 'No'}</label></div></Field></div>
+    <Field label={isZh ? '目前有哪些无法放下的学校、工作或项目安排？' : 'What school, work, or project commitments do you currently need to maintain?'} error={errors.existingCommitments}><TextArea label={isZh ? '目前无法放下的安排' : 'Current commitments'} value={form.existingCommitments} onChange={event => set('existingCommitments', event.target.value)} language={language} /></Field>
   </div>
 }
 
-function Learning({ isZh, form, set, onUpload, uploading, uploadError }) {
-  return <div className="section-body"><SectionIntro no="03" title={isZh ? '你如何学习与选择' : 'How you learn & choose'} desc={isZh ? '我们想了解你找到路径、穿过困难的方式。' : 'Show us how you find a path through difficulty.'} />
-    <QuestionLabel no="07" title={isZh ? '过去一年，你靠自己学会的最难的一件事是什么' : 'What is the hardest thing you taught yourself?'} desc={isZh ? '为什么学？卡在哪里？如何找到路径？最后做到了什么？' : 'Why learn it? Where were you stuck? How did you find a path? What could you do by the end?'} />
-    <Field label={isZh ? '你的回答' : 'Your answer'}><TextArea value={form.learning} onChange={e => set('learning', e.target.value)} placeholder={isZh ? '用一个具体的故事回答。' : 'Answer with one concrete story.'} maxLength={625} /></Field>
-    <div className="rule" /><QuestionLabel no="08" title={isZh ? '你现在最认真追什么问题' : 'What problem are you seriously pursuing now?'} desc={isZh ? '问题、已做的事、最难的地方、接下来四周。' : 'The problem, what you have done, what is hardest, and the next four weeks.'} />
-    <Field label={isZh ? '正在追的问题' : 'Problem in pursuit'}><TextArea value={form.pursuit} onChange={e => set('pursuit', e.target.value)} placeholder={isZh ? '不要只写方向，写清楚一个你正在验证的问题。' : 'Do not only name a direction; describe a question you are testing.'} maxLength={625} /></Field>
-    <div className="rule" /><QuestionLabel no="09" title={isZh ? '请提交一份过程证据' : 'Submit one piece of process evidence'} desc={isZh ? '可以是 Git 记录、实验日志、版本历史、学习笔记、错误记录、草稿或用户反馈。' : 'Git history, experiment logs, version history, notes, error logs, drafts, or user feedback.'} />
-    <div className="upload-box"><span className="upload-icon">↑</span><div><strong>{uploading ? (isZh ? '上传中…' : 'Uploading…') : form.processFile?.name || (isZh ? '拖入文件或点击上传' : 'Drop a file or click to upload')}</strong><small>{uploadError || (form.processFile?.fileToken ? (isZh ? '已上传，可随申请一起提交' : 'Uploaded and ready to submit') : isZh ? 'PDF、图片，最大 4 MB' : 'PDF or image, up to 4 MB')}</small></div><label className="upload-button" htmlFor="process-file">{isZh ? '选择文件' : 'Choose file'}</label><input id="process-file" className="file-input" type="file" accept=".pdf,image/*" onChange={e => onUpload(e.target.files?.[0])} /></div>
-    <Field label={isZh ? '或者粘贴链接' : 'Or paste a link'}><input value={form.process} onChange={e => set('process', e.target.value)} placeholder="https://" /></Field>
+function Video({ language, form, set, errors, onUpload, uploading, uploadError }) {
+  const isZh = language === 'zh'
+  return <div className="section-body"><SectionIntro no="三" title={isZh ? '视频｜Video' : 'Video｜视频'} />
+    <Question no="11" title={isZh ? '两分钟，不剪辑，不念稿｜Two minutes, unedited, no script' : 'Two minutes, unedited, no script｜两分钟，不剪辑，不念稿'}>
+      {isZh ? <><p>告诉我们：</p><ul><li>你最近最着迷的一件事是什么？</li><li>然后，拿一个你最近真的做过的东西给我们看，并讲讲你现在最不满意它的地方。</li></ul><p>中文或英文均可。</p></> : <><p>Tell us:</p><ul><li>What is something you have been most fascinated by recently?</li><li>Then show us something you have actually made or worked on recently, and tell us what you are currently least satisfied with about it.</li></ul><p>Chinese or English is acceptable.</p></>}
+    </Question>
+    <UploadBox id="video-file" attachment={form.videoFile} accept="video/mp4,video/quicktime,video/webm" onUpload={onUpload} uploading={uploading} error={uploadError || errors.videoEvidence} language={language} kind="video" />
+    <Field label={isZh ? '视频链接' : 'Video link'} error={errors.videoEvidence && !form.videoFile?.fileToken ? errors.videoEvidence : ''}><input aria-label={isZh ? '第 11 题视频链接' : 'Question 11 video link'} type="url" value={form.video} onChange={event => set('video', event.target.value)} placeholder="https://" /></Field>
   </div>
 }
 
-function Commitment({ isZh, form, set }) {
-  return <div className="section-body"><SectionIntro no="04" title={isZh ? '时间与承诺' : 'Time & commitment'} desc={isZh ? '诚实描述你能投入的时间，以及会影响它的安排。' : 'Be honest about the time you can give and what affects it.'} />
-    <QuestionLabel no="10" title={isZh ? '如果加入，你愿意投入什么' : 'What are you willing to commit?'} desc={isZh ? '每周真实投入、需要协调的安排、什么情况下会退出。不超过 200 字。' : 'Real weekly time, commitments to coordinate, and when you would leave. Max 200 words.'} />
-    <Field label={isZh ? '你的承诺' : 'Your commitment'}><TextArea value={form.commitment} onChange={e => set('commitment', e.target.value)} placeholder={isZh ? '例如：每周投入 4 天；需要协调课程安排；如果……我会退出。' : 'e.g. Four days each week; coordinate coursework; I would leave if...'} maxLength={500} /></Field>
-    <div className="commitment-note"><span>↗</span><p>{isZh ? '投入不是承诺的强度，而是你能持续兑现的具体安排。' : 'Commitment is not intensity. It is a concrete arrangement you can keep.'}</p></div>
+function Confirmation({ language, form, set, toggle, errors }) {
+  const isZh = language === 'zh'
+  return <div className="section-body"><SectionIntro no="—" title={isZh ? 'AI 使用说明｜AI Use' : 'AI Use｜AI 使用说明'} />
+    <Question no="AI" title={isZh ? '你在完成申请时如何使用了 AI？｜How did you use AI while completing this application?' : 'How did you use AI while completing this application?｜你在完成申请时如何使用了 AI？'}>
+      <p>{isZh ? '可多选：' : 'Select all that apply:'}</p><ul>{AI_OPTIONS.map(option => <li key={option.value}>{option[language]}</li>)}</ul><p>{isZh ? '请简要说明。' : 'Please explain briefly.'}</p>
+    </Question>
+    <Field label={isZh ? 'AI 使用方式' : 'AI use'} error={errors.ai}><OptionList options={AI_OPTIONS} values={form.ai} onToggle={value => toggle('ai', value)} language={language} /></Field>
+    <Field label={isZh ? '请简要说明' : 'Please explain briefly'} error={errors.aiNote}><textarea aria-label={isZh ? 'AI 使用说明' : 'AI use explanation'} value={form.aiNote} onChange={event => set('aiNote', event.target.value)} /></Field>
+    <div className="rule" />
+    <SectionIntro no="—" title={isZh ? '申请人确认｜Applicant Confirmation' : 'Applicant Confirmation｜申请人确认'} />
+    <div className={`confirm-block ${errors.confirmed ? 'field-invalid' : ''}`}>
+      <label className="confirm-row"><input type="checkbox" checked={form.confirmed} onChange={event => set('confirmed', event.target.checked)} /><span className="fake-check">✓</span><span>{isZh ? '我确认申请中的经历、作品和结果真实，已经清楚说明个人贡献，并如实披露 AI 的使用方式。我愿意在下一轮解释任何回答和提交材料。' : 'I confirm that the experiences, work, and results in this application are truthful, that I have clearly described my personal contribution, and that I have disclosed how I used AI. I am willing to explain any answer or submitted material in the next stage.'}</span></label>
+      {errors.confirmed && <span className="field-error" role="alert">{errors.confirmed}</span>}
+      <div className="field-grid two"><Field label={isZh ? '姓名｜Name' : 'Name｜姓名'} error={errors.confirmName}><input aria-label={isZh ? '确认姓名' : 'Confirmation name'} value={form.confirmName} onChange={event => set('confirmName', event.target.value)} /></Field><Field label={isZh ? '日期｜Date' : 'Date｜日期'} error={errors.confirmDate}><input aria-label={isZh ? '确认日期' : 'Confirmation date'} type="date" value={form.confirmDate} onChange={event => set('confirmDate', event.target.value)} /></Field></div>
+    </div>
   </div>
 }
-
-function Video({ isZh, form, set, onUpload, uploading, uploadError }) {
-  return <div className="section-body"><SectionIntro no="05" title={isZh ? '视频' : 'Video'} desc={isZh ? '不剪辑，最长两分钟。不要念稿。' : 'Unedited, up to two minutes. Do not read from a script.'} />
-    <QuestionLabel no="11" title={isZh ? '提交一段视频' : 'Submit a video'} desc={isZh ? '请直接回答：你在做什么、为什么做、过去一个月完成了什么、希望从 N1 获得什么。中文或英文均可。' : 'Answer directly: what you are working on, why, what you completed last month, and what you hope to gain. Chinese or English.'} />
-    <div className="upload-box video-upload"><span className="upload-icon">◉</span><div><strong>{uploading ? (isZh ? '上传中…' : 'Uploading…') : form.videoFile?.name || (isZh ? '拖入视频或点击上传' : 'Drop a video or click to upload')}</strong><small>{uploadError || (form.videoFile?.fileToken ? (isZh ? '已上传，可随申请一起提交' : 'Uploaded and ready to submit') : isZh ? 'MP4、MOV，最大 4 MB，最长 2 分钟' : 'MP4, MOV, up to 4 MB and 2 minutes')}</small></div><label className="upload-button" htmlFor="video-file">{isZh ? '选择视频' : 'Choose video'}</label><input id="video-file" className="file-input" type="file" accept="video/mp4,video/quicktime" onChange={e => onUpload(e.target.files?.[0])} /></div>
-    <Field label={isZh ? '或者粘贴视频链接' : 'Or paste a video link'}><input value={form.video} onChange={e => set('video', e.target.value)} placeholder="https://" /></Field>
-  </div>
-}
-
-function Reference({ isZh, form, set, toggle }) {
-  const aiOptions = isZh ? ['未使用', '翻译', '修改表达', '整理材料', '讨论问题', '生成部分初稿', '其他'] : ['Did not use AI', 'Translation', 'Editing', 'Organizing material', 'Discussing ideas', 'Generating part of a first draft', 'Other']
-  return <div className="section-body"><SectionIntro no="06" title={isZh ? '推荐人与补充' : 'Reference & final note'} desc={isZh ? '请提供真正与你共事过的人。' : 'Share someone who has actually worked with you.'} />
-    <QuestionLabel no="12" title={isZh ? '推荐人' : 'Reference'} desc={isZh ? '可以是队友、导师、老师、用户或合作者。' : 'A teammate, mentor, teacher, user, or collaborator.'} />
-    <div className="field-grid two"><Field label={isZh ? '姓名' : 'Name'}><input value={form.refName} onChange={e => set('refName', e.target.value)} /></Field><Field label={isZh ? '联系方式' : 'Contact information'}><input value={form.refContact} onChange={e => set('refContact', e.target.value)} /></Field></div>
-    <Field label={isZh ? '你们一起做过什么' : 'What did you work on together'}><input value={form.refWork} onChange={e => set('refWork', e.target.value)} /></Field>
-    <Field label={isZh ? '是否允许我们联系他' : 'May we contact them?'}><div className="radio-row"><label><input type="radio" name="ref" checked={form.refAllowed === 'yes'} onChange={() => set('refAllowed', 'yes')} /> {isZh ? '可以' : 'Yes'}</label><label><input type="radio" name="ref" checked={form.refAllowed === 'no'} onChange={() => set('refAllowed', 'no')} /> {isZh ? '暂不' : 'Not yet'}</label></div></Field>
-    <div className="rule" /><QuestionLabel no="13" title={isZh ? '还有什么是我们必须知道的' : 'What else do we need to know?'} desc={isZh ? '选填，不超过 150 字。' : 'Optional, max 150 words.'} /><Field label={isZh ? '补充说明' : 'Final note'}><TextArea value={form.final} onChange={e => set('final', e.target.value)} placeholder={isZh ? '选填' : 'Optional'} maxLength={375} /></Field>
-    <div className="rule" /><QuestionLabel no="AI" title={isZh ? '你如何使用了 AI' : 'How did you use AI?'} desc={isZh ? '可多选，请简要说明。' : 'Select all that apply, then explain briefly.'} /><CheckList options={aiOptions} values={form.ai} onToggle={v => toggle('ai', v)} /><Field label={isZh ? 'AI 使用说明' : 'AI use note'}><input value={form.aiNote} onChange={e => set('aiNote', e.target.value)} placeholder={isZh ? '简要说明你使用 AI 的方式' : 'Briefly explain how you used AI'} /></Field>
-    <div className="rule" /><div className="confirm-block"><label className="confirm-row"><input type="checkbox" checked={form.confirmed} onChange={e => set('confirmed', e.target.checked)} /><span className="fake-check">✓</span><span>{isZh ? '我确认申请中的经历、作品和结果真实，已经清楚说明个人贡献，并如实披露 AI 的使用方式。' : 'I confirm that my experiences, work, and results are truthful, that I have clearly described my contribution, and that I have disclosed my AI use.'}</span></label><div className="field-grid two"><Field label={isZh ? '姓名' : 'Name'}><input value={form.confirmName} onChange={e => set('confirmName', e.target.value)} /></Field><Field label={isZh ? '日期' : 'Date'}><input type="date" value={form.confirmDate} onChange={e => set('confirmDate', e.target.value)} /></Field></div></div>
-  </div>
-}
-
-function SectionIntro({ no, title, desc }) { return <div className="section-intro"><span className="section-no">{no}</span><div><h2>{title}</h2><p>{desc}</p></div></div> }
-function QuestionLabel({ no, title, desc }) { return <div className="question-label"><span className="q-no">{no}</span><div><h3>{title}</h3>{desc && <p>{desc}</p>}</div></div> }
 
 export default App
 
