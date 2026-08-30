@@ -73,6 +73,47 @@ function TextArea({ value, onChange, label, limit, language }) {
   </div>
 }
 
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/
+
+function formatEnglishDate(value) {
+  if (!value) return ''
+  if (!isoDatePattern.test(value)) return value
+  const [year, month, day] = value.split('-')
+  return `${month}/${day}/${year.slice(-2)}`
+}
+
+function parseEnglishDate(value) {
+  const match = String(value).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
+  if (!match) return null
+  const month = Number(match[1])
+  const day = Number(match[2])
+  const year = match[3].length === 2 ? 2000 + Number(match[3]) : Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+function DateField({ value, onChange, label, language }) {
+  const isZh = language === 'zh'
+  const [display, setDisplay] = useState(() => isZh ? value : formatEnglishDate(value))
+
+  useEffect(() => {
+    setDisplay(isZh ? value : formatEnglishDate(value))
+  }, [isZh, value])
+
+  if (isZh) {
+    return <input aria-label={label} lang="zh-CN" type="date" value={value} onChange={event => onChange(event.target.value)} />
+  }
+
+  const handleChange = event => {
+    const next = event.target.value.replace(/[^\d/]/g, '').slice(0, 10)
+    setDisplay(next)
+    onChange(next ? (parseEnglishDate(next) || next) : '')
+  }
+
+  return <input aria-label={label} lang="en-US" type="text" inputMode="numeric" placeholder="MM/DD/YY" value={display} onChange={handleChange} />
+}
+
 function OptionList({ options, values, onToggle, language }) {
   return <div className="check-list">
     {options.map(option => <label className="check-row" key={option.value}>
@@ -411,7 +452,7 @@ function Basics({ language, form, set, errors }) {
   const isZh = language === 'zh'
   return <div className="section-body"><SectionIntro no="一" title={isZh ? '基本信息' : 'Basic Information'} />
     <Question no="01" title={isZh ? '个人信息' : 'Personal Information'}><p>{isZh ? '姓名、出生日期、国籍、常住城市、邮箱、手机号、微信或其他联系方式。' : 'Full name, date of birth, nationality, current city, email, phone number, WeChat, or another contact method.'}</p></Question>
-    <div className="field-grid two"><Field fieldKey="name" label={isZh ? '姓名' : 'Full name'} error={errors.name}><input aria-label={isZh ? '姓名' : 'Full name'} value={form.name} onChange={event => set('name', event.target.value)} /></Field><Field fieldKey="birthday" label={isZh ? '出生日期' : 'Date of birth'} error={errors.birthday}><input aria-label={isZh ? '出生日期' : 'Date of birth'} type="date" value={form.birthday} onChange={event => set('birthday', event.target.value)} /></Field></div>
+    <div className="field-grid two"><Field fieldKey="name" label={isZh ? '姓名' : 'Full name'} error={errors.name}><input aria-label={isZh ? '姓名' : 'Full name'} value={form.name} onChange={event => set('name', event.target.value)} /></Field><Field fieldKey="birthday" label={isZh ? '出生日期' : 'Date of birth'} error={errors.birthday}><DateField label={isZh ? '出生日期' : 'Date of birth'} language={language} value={form.birthday} onChange={value => set('birthday', value)} /></Field></div>
     <div className="field-grid three"><Field fieldKey="nationality" label={isZh ? '国籍' : 'Nationality'} error={errors.nationality}><input aria-label={isZh ? '国籍' : 'Nationality'} value={form.nationality} onChange={event => set('nationality', event.target.value)} /></Field><Field fieldKey="city" label={isZh ? '常住城市' : 'Current city'} error={errors.city}><input aria-label={isZh ? '常住城市' : 'Current city'} value={form.city} onChange={event => set('city', event.target.value)} /></Field><Field fieldKey="email" label={isZh ? '邮箱' : 'Email'} error={errors.email}><input aria-label={isZh ? '邮箱' : 'Email'} type="email" value={form.email} onChange={event => set('email', event.target.value)} /></Field></div>
     <div className="field-grid two"><Field fieldKey="phone" label={isZh ? '手机号' : 'Phone number'} error={errors.phone}><input aria-label={isZh ? '手机号' : 'Phone number'} value={form.phone} onChange={event => set('phone', event.target.value)} /></Field><Field fieldKey="contact" label={isZh ? '微信或其他联系方式' : 'WeChat or another contact method'} error={errors.contact}><input aria-label={isZh ? '微信或其他联系方式' : 'WeChat or another contact method'} value={form.contact} onChange={event => set('contact', event.target.value)} /></Field></div>
     <div className="rule" />
@@ -470,7 +511,7 @@ function CoreTwo({ language, form, set, errors, onUpload, uploading, uploadError
     <Question no="10" title={isZh ? '参与安排' : 'Participation'}>
       {isZh ? <><p>如果加入：</p><ul><li>最早什么时候可以开始？</li><li>每周真实能来几天？</li><li>预计持续多久？</li><li>是否需要住宿？</li><li>目前有哪些无法放下的学校、工作或项目安排？</li></ul></> : <><p>If you join:</p><ul><li>When can you start at the earliest?</li><li>How many days per week can you realistically participate?</li><li>How long do you expect to participate?</li><li>Do you need housing?</li><li>What school, work, or project commitments do you currently need to maintain?</li></ul></>}
     </Question>
-    <div className="field-grid four"><Field fieldKey="start" label={isZh ? '最早开始时间' : 'Earliest start date'} error={errors.start}><input aria-label={isZh ? '最早开始时间' : 'Earliest start date'} type="date" value={form.start} onChange={event => set('start', event.target.value)} /></Field><Field fieldKey="days" label={isZh ? '每周真实能来几天' : 'Days per week'} error={errors.days}><input aria-label={isZh ? '每周真实能来几天' : 'Days per week'} value={form.days} onChange={event => set('days', event.target.value)} /></Field><Field fieldKey="duration" label={isZh ? '预计持续多久' : 'Expected duration'} error={errors.duration}><input aria-label={isZh ? '预计持续多久' : 'Expected duration'} value={form.duration} onChange={event => set('duration', event.target.value)} /></Field><Field fieldKey="housing" label={isZh ? '是否需要住宿' : 'Do you need housing?'} error={errors.housing}><div className="radio-row"><label><input type="radio" name="housing" checked={form.housing === 'yes'} onChange={() => set('housing', 'yes')} /> {isZh ? '是' : 'Yes'}</label><label><input type="radio" name="housing" checked={form.housing === 'no'} onChange={() => set('housing', 'no')} /> {isZh ? '否' : 'No'}</label></div></Field></div>
+    <div className="field-grid four"><Field fieldKey="start" label={isZh ? '最早开始时间' : 'Earliest start date'} error={errors.start}><DateField label={isZh ? '最早开始时间' : 'Earliest start date'} language={language} value={form.start} onChange={value => set('start', value)} /></Field><Field fieldKey="days" label={isZh ? '每周真实能来几天' : 'Days per week'} error={errors.days}><input aria-label={isZh ? '每周真实能来几天' : 'Days per week'} value={form.days} onChange={event => set('days', event.target.value)} /></Field><Field fieldKey="duration" label={isZh ? '预计持续多久' : 'Expected duration'} error={errors.duration}><input aria-label={isZh ? '预计持续多久' : 'Expected duration'} value={form.duration} onChange={event => set('duration', event.target.value)} /></Field><Field fieldKey="housing" label={isZh ? '是否需要住宿' : 'Do you need housing?'} error={errors.housing}><div className="radio-row"><label><input type="radio" name="housing" checked={form.housing === 'yes'} onChange={() => set('housing', 'yes')} /> {isZh ? '是' : 'Yes'}</label><label><input type="radio" name="housing" checked={form.housing === 'no'} onChange={() => set('housing', 'no')} /> {isZh ? '否' : 'No'}</label></div></Field></div>
     <Field fieldKey="existingCommitments" label={isZh ? '目前有哪些无法放下的学校、工作或项目安排？' : 'What school, work, or project commitments do you currently need to maintain?'} error={errors.existingCommitments}><TextArea label={isZh ? '目前无法放下的安排' : 'Current commitments'} value={form.existingCommitments} onChange={event => set('existingCommitments', event.target.value)} language={language} /></Field>
   </div>
 }
@@ -499,7 +540,7 @@ function Confirmation({ language, form, set, toggle, errors }) {
     <div className={`confirm-block ${errors.confirmed ? 'field-invalid' : ''}`} data-field="confirmed">
       <label className="confirm-row"><input type="checkbox" checked={form.confirmed} onChange={event => set('confirmed', event.target.checked)} /><span className="fake-check">✓</span><span>{isZh ? '我确认申请中的经历、作品和结果真实，已经清楚说明个人贡献，并如实披露 AI 的使用方式。我愿意在下一轮解释任何回答和提交材料。' : 'I confirm that the experiences, work, and results in this application are truthful, that I have clearly described my personal contribution, and that I have disclosed how I used AI. I am willing to explain any answer or submitted material in the next stage.'}</span></label>
       {errors.confirmed && <span className="field-error" role="alert">{errors.confirmed}</span>}
-      <div className="field-grid two"><Field fieldKey="confirmName" label={isZh ? '姓名' : 'Name'} error={errors.confirmName}><input aria-label={isZh ? '确认姓名' : 'Confirmation name'} value={form.confirmName} onChange={event => set('confirmName', event.target.value)} /></Field><Field fieldKey="confirmDate" label={isZh ? '日期' : 'Date'} error={errors.confirmDate}><input aria-label={isZh ? '确认日期' : 'Confirmation date'} type="date" value={form.confirmDate} onChange={event => set('confirmDate', event.target.value)} /></Field></div>
+      <div className="field-grid two"><Field fieldKey="confirmName" label={isZh ? '姓名' : 'Name'} error={errors.confirmName}><input aria-label={isZh ? '确认姓名' : 'Confirmation name'} value={form.confirmName} onChange={event => set('confirmName', event.target.value)} /></Field><Field fieldKey="confirmDate" label={isZh ? '日期' : 'Date'} error={errors.confirmDate}><DateField label={isZh ? '确认日期' : 'Confirmation date'} language={language} value={form.confirmDate} onChange={value => set('confirmDate', value)} /></Field></div>
     </div>
   </div>
 }

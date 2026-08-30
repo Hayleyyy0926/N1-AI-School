@@ -120,6 +120,11 @@ export function validateAnswers(answers = {}, language = 'zh') {
   if (answers.email && !/^\S+@\S+\.\S+$/.test(String(answers.email).trim())) {
     errors.email = lang === 'zh' ? '请输入有效的邮箱地址。' : 'Enter a valid email address.'
   }
+  for (const key of ['birthday', 'start', 'confirmDate']) {
+    if (answers[key] && !/^\d{4}-\d{2}-\d{2}$/.test(String(answers[key]))) {
+      errors[key] = lang === 'zh' ? '请输入有效日期。' : 'Enter a valid date in MM/DD/YY format.'
+    }
+  }
   if (!hasAttachment(answers.processFile) && !hasValue(answers.process)) {
     errors.processEvidence = lang === 'zh' ? '请上传附件或填写链接。' : 'Upload an attachment or provide a link.'
   }
