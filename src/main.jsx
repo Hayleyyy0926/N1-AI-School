@@ -96,6 +96,7 @@ function parseEnglishDate(value) {
 function DateField({ value, onChange, label, language }) {
   const isZh = language === 'zh'
   const [display, setDisplay] = useState(() => isZh ? value : formatEnglishDate(value))
+  const nativePickerRef = useRef(null)
 
   useEffect(() => {
     setDisplay(isZh ? value : formatEnglishDate(value))
@@ -111,7 +112,18 @@ function DateField({ value, onChange, label, language }) {
     onChange(next ? (parseEnglishDate(next) || next) : '')
   }
 
-  return <input aria-label={label} lang="en-US" type="text" inputMode="numeric" placeholder="MM/DD/YY" value={display} onChange={handleChange} />
+  const openPicker = () => {
+    const picker = nativePickerRef.current
+    if (!picker) return
+    if (typeof picker.showPicker === 'function') picker.showPicker()
+    else picker.click()
+  }
+
+  return <div className="date-input-wrap">
+    <input aria-label={label} lang="en-US" type="text" inputMode="numeric" placeholder="MM/DD/YY" value={display} onChange={handleChange} />
+    <button type="button" className="date-picker-button" aria-label={language === 'en' ? `Choose ${label}` : `选择${label}`} onClick={openPicker}><span aria-hidden="true" /></button>
+    <input ref={nativePickerRef} className="date-picker-native" aria-hidden="true" tabIndex={-1} lang="en-US" type="date" value={isoDatePattern.test(value) ? value : ''} onChange={event => { const next = event.target.value; setDisplay(formatEnglishDate(next)); onChange(next) }} />
+  </div>
 }
 
 function OptionList({ options, values, onToggle, language }) {
