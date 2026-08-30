@@ -158,7 +158,7 @@ export default function CoverPage({ lang, setLang, onApply }) {
         <div className="cover-contact-list">
           <a href="mailto:neuronone@vip.163.com"><span>{copy.email}</span><strong>neuronone@vip.163.com</strong><i>↗</i></a>
           <div><span>{copy.wechat}</span><strong>董科含</strong></div>
-          <div><span>{copy.red}</span><strong>起点计划</strong></div>
+          <a href="https://xhslink.cn/m/8UK5pRNID95" target="_blank" rel="noreferrer"><span>{copy.red}</span><strong>起点计划</strong><i>↗</i></a>
         </div>
         <footer>{copy.footer}</footer>
       </section>
