@@ -16,7 +16,7 @@ export default async function handler(req, res) {
       const language = body.language === 'en' ? 'en' : 'zh'
       if (status === 'submitted') {
         const validation = validateAnswers(answers, language)
-        if (!validation.valid) return res.status(422).json({ error: 'Required answers are incomplete', errors: validation.errors, firstSection: validation.firstSection })
+        if (!validation.valid) return res.status(422).json({ error: 'Required answers are incomplete', errors: validation.errors, firstField: validation.firstField, firstSection: validation.firstSection })
       }
       const rows = await sql`INSERT INTO submissions (id, form_version, language, edit_token_hash, applicant_name, contact_email, answers, status, submitted_at) VALUES (${randomUUID()}, ${FORM_VERSION}, ${language}, ${hash(token)}, ${answers.name || null}, ${answers.email || null}, ${JSON.stringify(answers)}::jsonb, ${status}, ${status === 'submitted' ? new Date() : null}) RETURNING id, form_version, status, language, answers, created_at, submitted_at`
       let feishuSync = 'not_needed'

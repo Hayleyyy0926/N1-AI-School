@@ -18,7 +18,7 @@ export default async function handler(req, res) {
       const language = body.language === 'en' ? 'en' : 'zh'
       if (status === 'submitted') {
         const validation = validateAnswers(answers, language)
-        if (!validation.valid) return res.status(422).json({ error: 'Required answers are incomplete', errors: validation.errors, firstSection: validation.firstSection })
+        if (!validation.valid) return res.status(422).json({ error: 'Required answers are incomplete', errors: validation.errors, firstField: validation.firstField, firstSection: validation.firstSection })
       }
       const tokenHash = hash(token)
       const current = await sql`SELECT status FROM submissions WHERE id = ${id} AND edit_token_hash = ${tokenHash}`

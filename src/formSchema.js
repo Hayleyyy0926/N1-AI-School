@@ -140,5 +140,10 @@ export function validateAnswers(answers = {}, language = 'zh') {
   }
 
   const firstKey = Object.keys(FIELD_SECTIONS).find(key => errors[key])
-  return { valid: Object.keys(errors).length === 0, errors, firstSection: firstKey ? FIELD_SECTIONS[firstKey] : null }
+  return {
+    valid: Object.keys(errors).length === 0,
+    errors,
+    firstField: firstKey || null,
+    firstSection: firstKey ? FIELD_SECTIONS[firstKey] : null,
+  }
 }
