@@ -143,10 +143,10 @@ textarea { min-height:147px; resize:vertical; line-height:1.6; border:1px solid 
 .cover-language button { border:0; border-bottom:1px solid transparent; padding:4px 0; background:transparent; opacity:.38; cursor:pointer; font:11px 'DM Mono',monospace; }
 .cover-language button.active { border-color:var(--ink); opacity:1; }
 .cover-language span { opacity:.3; }
-.cover-brand-lockup { position:fixed; z-index:35; left:50%; display:flex; align-items:baseline; gap:36px; width:max-content; max-width:94vw; color:#fff; mix-blend-mode:difference; transform-origin:center; pointer-events:none; will-change:top,transform; }
+.cover-brand-lockup { position:fixed; z-index:45; left:50%; display:flex; align-items:baseline; gap:36px; width:max-content; max-width:94vw; color:#fff; mix-blend-mode:difference; transform-origin:center; pointer-events:none; will-change:top,transform; }
 .cover-brand-n1 { font:400 260px/.72 'Libre Baskerville',Georgia,serif; letter-spacing:0; }
 .cover-brand-school { font:500 70px/1 'DM Sans',sans-serif; letter-spacing:0; white-space:nowrap; }
-.cover-hero { position:relative; z-index:1; min-height:100svh; border-bottom:1px solid var(--ink); }
+.cover-hero { position:relative; z-index:1; min-height:100svh; }
 .cover-hero-foot { position:absolute; left:42px; right:42px; bottom:32px; display:grid; grid-template-columns:1fr minmax(240px,430px) 1fr; align-items:end; gap:40px; font:10px/1.5 'DM Mono',monospace; transition:opacity .25s ease; }
 .cover-hero-foot p { margin:0; max-width:430px; font:16px/1.55 'DM Sans',sans-serif; }
 .cover-scroll { justify-self:end; display:flex; align-items:center; gap:12px; }

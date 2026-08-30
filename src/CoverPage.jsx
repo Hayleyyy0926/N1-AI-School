@@ -86,7 +86,7 @@ export default function CoverPage({ lang, setLang, onApply }) {
   }, [])
 
   const markStyle = {
-    top: `${50 - (scrollProgress * 34)}vh`,
+    top: `${(window.innerHeight * 0.5) + ((window.innerWidth <= 680 ? 29.5 : 35) - (window.innerHeight * 0.5)) * scrollProgress}px`,
     transform: `translate(-50%, -50%) scale(${1 - (scrollProgress * 0.86)})`
   }
 
